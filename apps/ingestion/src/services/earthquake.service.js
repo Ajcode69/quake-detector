@@ -20,7 +20,7 @@ const WATCH_FIELDS = ["mag", "alert", "mmi", "sig", "tsunami"];
  * @param {object} feature - raw USGS GeoJSON feature
  * @returns {{ isNew: boolean, revisions: Array, event: object }}
  */
-export async function upsertEarthquake(feature) {
+export async function upsertEarthquake(feature, options = { notify: true }) {
   const p = feature.properties;
   const [lon, lat, depth] = feature.geometry.coordinates;
 
@@ -76,7 +76,9 @@ export async function upsertEarthquake(feature) {
     `;
 
     // NOTIFY for new event
-    await prisma.$executeRawUnsafe(`NOTIFY earthquake_raw, '{"id": "${feature.id}"}'`);
+    if (options.notify) {
+      await prisma.$executeRawUnsafe(`NOTIFY earthquake_raw, '{"id": "${feature.id}"}'`);
+    }
 
     log.info({ id: feature.id, mag: p.mag, place: p.place }, "new event ingested");
 

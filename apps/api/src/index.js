@@ -15,6 +15,7 @@ import { sendTelegram } from "./services/notifier.service.js";
 import { broadcastRiskUpdate } from "./services/persister.service.js";
 import { computeAndBroadcast } from "./services/risk.service.js";
 import { getUnsentAlerts, markAlertSent } from "./services/alert.service.js";
+import { runDailyDigest, setupMaterializedViews } from "./services/digest.service.js";
 import eventsRouter from "./routes/events.js";
 import healthRouter from "./routes/health.js";
 import locationsRouter from "./routes/locations.js";
@@ -46,13 +47,7 @@ app.get("/", (_req, res) => res.json({ service: "quake-detector-api", status: "o
 // ── Daily digest cron ───────────────────────────────────────
 function scheduleDailyDigest() {
   cron.schedule("0 8 * * *", async () => {
-    log.info("running daily digest");
-    try {
-      // TODO: query events per user location for last 24h, format digest, send via Telegram
-      log.info("daily digest complete");
-    } catch (err) {
-      log.error({ err }, "daily digest failed");
-    }
+    await runDailyDigest();
   }, { timezone: "UTC" });
   log.info("daily digest cron scheduled (08:00 UTC)");
 }
@@ -102,6 +97,7 @@ function scheduleRiskScoring() {
 // ── Main ────────────────────────────────────────────────────
 async function main() {
   await startPostgresListener();
+  await setupMaterializedViews();
   scheduleDailyDigest();
   scheduleAlertRetrySweep();
   scheduleRiskScoring();

@@ -1,0 +1,14 @@
+// ── Backfill / Reconciliation Log ───────────────────────────
+model BackfillLog {
+  id             Int       @id @default(autoincrement())
+  startedAt      DateTime  @default(now()) @map("started_at")
+  completedAt    DateTime? @map("completed_at")
+  status         String    // 'running', 'success', 'partial_success', 'failed'
+  eventsTotal    Int       @default(0) @map("events_total")
+  eventsUpserted Int       @default(0) @map("events_upserted")
+  errorsCount    Int       @default(0) @map("errors_count")
+  errorMessage   String?   @map("error_message")
+
+  @@index([startedAt(sort: Desc)])
+  @@map("backfill_logs")
+}

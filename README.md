@@ -41,6 +41,12 @@ The USGS frequently revises earthquake data (e.g., bumping a magnitude from `M4.
 *   If we treated events as immutable, we would fail to alert users of escalated threats.
 *   Our ingestion worker performs `upserts`, diffs critical safety fields, logs an `EventRevision` record, and fires a specific `revision: true` notification. The evaluator intercepts this and re-evaluates the event, issuing an escalated 🔴 **REVISED ALERT** to users if new thresholds are crossed.
 
+### 6. Resiliency via Periodic Reconciliation (Lambda Architecture)
+Relying entirely on a 1-minute poller ("Speed Layer") is risky. If the service drops connection or USGS goes down for hours, data drifts. 
+*   **The Problem:** Poller restarts only fetch the last hour, leaving silent gaps in historical data.
+*   **The Solution:** We implemented a monthly "Batch Layer" reconciliation cron. Upon startup (and every 30 days), the system fetches the entire 30-day USGS feed.
+*   **Performance:** Instead of blindly re-processing 10,000 events, it tracks a high-water mark of USGS's internal `updated` timestamp. It gracefully skips unchanged records, surgically diffing and patching gaps or late revisions without triggering duplicate alerts or blocking the live poller.
+
 ---
 
 ## Local Development

@@ -2,6 +2,7 @@ import { config } from "../../../shared/config.js";
 import { createLogger } from "../../../shared/logger.js";
 import prisma, { disconnect } from "../../../shared/db/client.js";
 import { pollOnce, getBackoffMs } from "./poller.js";
+import { runReconciliation } from "./services/reconciliation.service.js";
 
 const log = createLogger("ingestion");
 
@@ -36,10 +37,42 @@ function schedulePoll() {
   log.debug({ nextMs }, "next poll scheduled");
 }
 
+const ONE_MONTH_MS = 30 * 24 * 60 * 60 * 1000;
+
+async function checkAndRunReconciliation() {
+  try {
+    const lastSuccess = await prisma.backfillLog.findFirst({
+      where: { status: { in: ['success', 'partial_success'] } },
+      orderBy: { startedAt: 'desc' }
+    });
+
+    const needsReconciliation = !lastSuccess || 
+      (Date.now() - new Date(lastSuccess.startedAt).getTime() > ONE_MONTH_MS);
+
+    if (needsReconciliation) {
+      log.info("triggering missing data reconciliation (backfill)...");
+      await runReconciliation();
+    } else {
+      log.info("reconciliation up to date, skipping backfill");
+    }
+  } catch (err) {
+    log.error({ err }, "failed to check reconciliation status");
+  }
+}
+
 async function main() {
   log.info({ interval: config.pollIntervalSec, feed: config.usgsFeedUrl }, "starting ingestion worker");
 
-  // Initial poll
+  // 1. Initial Backfill / Reconcile missing data
+  await checkAndRunReconciliation();
+
+  // 2. Schedule monthly reconciliation cron
+  setInterval(() => {
+    log.info("running scheduled reconciliation...");
+    runReconciliation().catch(err => log.error({ err }, "scheduled reconciliation failed"));
+  }, ONE_MONTH_MS);
+
+  // 3. Initial poll and loop
   await safePoll();
 
   log.info("ingestion worker running — press Ctrl+C to stop");
