@@ -75,6 +75,9 @@ export async function upsertEarthquake(feature) {
       WHERE id = ${feature.id}
     `;
 
+    // NOTIFY for new event
+    await prisma.$executeRawUnsafe(`NOTIFY earthquake_raw, '{"id": "${feature.id}"}'`);
+
     log.info({ id: feature.id, mag: p.mag, place: p.place }, "new event ingested");
 
     return {

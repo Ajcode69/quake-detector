@@ -10,11 +10,9 @@ import cron from "node-cron";
 import { config } from "../../../shared/config.js";
 import { createLogger } from "../../../shared/logger.js";
 import { disconnect } from "../../../shared/db/client.js";
-import { createKafkaClient } from "../../../shared/kafka/client.js";
-import { startPersister } from "./consumers/persister.js";
-import { startEvaluator } from "./consumers/evaluator.js";
-import { startNotifier, sendTelegram } from "./consumers/notifier.js";
-import { broadcastRiskUpdate } from "./consumers/persister.js";
+import { startPostgresListener } from "./listeners/postgres.js";
+import { sendTelegram } from "./services/notifier.service.js";
+import { broadcastRiskUpdate } from "./services/persister.service.js";
 import { computeAndBroadcast } from "./services/risk.service.js";
 import { getUnsentAlerts, markAlertSent } from "./services/alert.service.js";
 import eventsRouter from "./routes/events.js";
@@ -44,30 +42,6 @@ app.use("/api/geocode", geocodeRouter);
 app.use("/api/stream", sseRouter);
 app.get("/", (_req, res) => res.json({ service: "quake-detector-api", status: "ok" }));
 
-// ── Kafka consumers ─────────────────────────────────────────
-async function startConsumers() {
-  const kafka = createKafkaClient("api-server");
-
-  const persisterConsumer = kafka.consumer({ groupId: "event-persister" });
-  const evaluatorConsumer = kafka.consumer({ groupId: "alert-evaluator" });
-  const notifierConsumer = kafka.consumer({ groupId: "telegram-notifier" });
-  const alertProducer = kafka.producer();
-
-  await Promise.all([
-    persisterConsumer.connect(),
-    evaluatorConsumer.connect(),
-    notifierConsumer.connect(),
-    alertProducer.connect(),
-  ]);
-
-  log.info("all kafka consumers + producer connected");
-
-  await startPersister(persisterConsumer);
-  await startEvaluator(evaluatorConsumer, alertProducer);
-  await startNotifier(notifierConsumer);
-
-  return { persisterConsumer, evaluatorConsumer, notifierConsumer, alertProducer };
-}
 
 // ── Daily digest cron ───────────────────────────────────────
 function scheduleDailyDigest() {
@@ -107,17 +81,17 @@ function scheduleAlertRetrySweep() {
 }
 
 // ── Risk scoring cron (every 5 min) ─────────────────────────
-function scheduleRiskScoring(alertProducer) {
+function scheduleRiskScoring() {
   // Run once on startup after a short delay
   setTimeout(() => {
-    computeAndBroadcast(alertProducer, broadcastRiskUpdate).catch((err) => {
+    computeAndBroadcast(broadcastRiskUpdate).catch((err) => {
       log.error({ err }, "initial risk scoring failed");
     });
   }, 10_000);
 
   cron.schedule("*/5 * * * *", async () => {
     try {
-      await computeAndBroadcast(alertProducer, broadcastRiskUpdate);
+      await computeAndBroadcast(broadcastRiskUpdate);
     } catch (err) {
       log.error({ err }, "risk scoring cron failed");
     }
@@ -127,10 +101,10 @@ function scheduleRiskScoring(alertProducer) {
 
 // ── Main ────────────────────────────────────────────────────
 async function main() {
-  const consumers = await startConsumers();
+  await startPostgresListener();
   scheduleDailyDigest();
   scheduleAlertRetrySweep();
-  scheduleRiskScoring(consumers.alertProducer);
+  scheduleRiskScoring();
 
   app.listen(config.port, () => {
     log.info({ port: config.port }, "API server listening");
@@ -139,10 +113,6 @@ async function main() {
   async function shutdown(signal) {
     log.info({ signal }, "shutting down API server");
     try {
-      await consumers.persisterConsumer.disconnect();
-      await consumers.evaluatorConsumer.disconnect();
-      await consumers.notifierConsumer.disconnect();
-      await consumers.alertProducer.disconnect();
       await disconnect();
     } catch (err) {
       log.error({ err }, "error during shutdown");

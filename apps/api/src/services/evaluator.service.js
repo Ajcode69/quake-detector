@@ -9,14 +9,14 @@
  */
 
 import { createLogger } from "../../../../shared/logger.js";
-import { TOPICS } from "../../../../shared/kafka/topics.js";
 import { getEventForReeval } from "../services/earthquake.service.js";
-import { findNearbyLocationsCached, getAllChatIdsCached, startLocationCache } from "../services/location.cache.js";
-import { isDuplicateAlert, isSwarmDuplicate, computeSwarmHash } from "../services/alert.service.js";
+import { findNearbyLocationsCached, getAllChatIdsCached } from "../services/location.cache.js";
+import { isDuplicateAlert, isSwarmDuplicate, computeSwarmHash, saveAlert } from "../services/alert.service.js";
 import { detectSwarm, SWARM_WINDOW_HOURS, SWARM_RADIUS_KM } from "../services/swarm.service.js";
+import { formatAlertMessage } from "./notifier.service.js";
 import prisma from "../../../../shared/db/client.js";
 
-const log = createLogger("consumer:evaluator");
+const log = createLogger("evaluator");
 
 // Tier 1 thresholds
 const GLOBAL_MAG_THRESHOLD = 5.0;
@@ -25,62 +25,35 @@ const DEFAULT_PROXIMITY_MAG = 3.0;
 const SIGNIFICANT_SIG_THRESHOLD = 600;
 
 /**
- * Start the evaluator consumer.
- */
-export async function startEvaluator(consumer, producer) {
-  // Start the in-memory location cache BEFORE subscribing
-  await startLocationCache();
-
-  await consumer.subscribe({ topics: [TOPICS.RAW, TOPICS.REVISIONS], fromBeginning: false });
-
-  await consumer.run({
-    eachMessage: async ({ topic, message }) => {
-      try {
-        const payload = JSON.parse(message.value.toString());
-        if (payload._backfill) return;
-
-        // Handle system alerts (source silence, etc.)
-        if (payload._systemAlert) {
-          await handleSystemAlert(payload, producer);
-          return;
-        }
-
-        if (topic === TOPICS.RAW) {
-          await evaluateEvent(payload, producer, false);
-        } else if (topic === TOPICS.REVISIONS) {
-          await evaluateRevision(payload, producer);
-        }
-      } catch (err) {
-        log.error({ err, topic }, "evaluator failed to process message");
-      }
-    },
-  });
-
-  log.info("evaluator consumer running");
-}
-
-/**
  * Handle system alerts (source silence, etc.).
  */
-async function handleSystemAlert(payload, producer) {
+export async function handleSystemAlert(payload) {
   const chatIds = getAllChatIdsCached();
   for (const chatId of chatIds) {
-    await producer.send({
-      topic: TOPICS.ALERTS,
-      messages: [{
-        key: String(chatId),
-        value: JSON.stringify({
-          eventId: payload.id,
-          chatId: String(chatId),
-          rules: [{ type: "system", reason: `⚠️ USGS unreachable for ${payload.consecutiveFailures} consecutive polls` }],
-          severity: "warning",
-          isRevision: false,
-          event: { mag: null, place: "System Alert", sig: null, tsunami: 0, depth: null, alert: null },
-          _systemAlert: true,
-          timestamp: Date.now(),
-        }),
-      }],
+    const alertData = {
+      eventId: payload.id,
+      chatId: String(chatId),
+      rules: [{ type: "system", reason: `⚠️ USGS unreachable for ${payload.consecutiveFailures} consecutive polls` }],
+      severity: "warning",
+      isRevision: false,
+      event: { mag: null, place: "System Alert", sig: null, tsunami: 0, depth: null, alert: null },
+      _systemAlert: true,
+      timestamp: Date.now(),
+    };
+    
+    const saved = await saveAlert({
+      eventId: alertData.eventId,
+      chatId: alertData.chatId,
+      ruleType: "system",
+      severity: alertData.severity,
+      message: formatAlertMessage(alertData),
+      isRevision: false,
+      dedupHash: `sys-${payload.consecutiveFailures}-${chatId}`
     });
+    
+    if (saved) {
+      await prisma.$executeRawUnsafe(`NOTIFY earthquake_alerts, '{"id": ${saved.id}}'`);
+    }
   }
   log.warn({ failures: payload.consecutiveFailures }, "source silence alert produced");
 }
@@ -88,7 +61,7 @@ async function handleSystemAlert(payload, producer) {
 /**
  * Evaluate all alert tiers for a single event.
  */
-async function evaluateEvent(event, producer, isRevision) {
+export async function evaluateEvent(event, isRevision) {
   const { id, mag, tsunami, sig, longitude, latitude, place } = event;
   const triggeredAlerts = [];
   const severity = determineSeverity(mag, tsunami, sig);
@@ -192,10 +165,11 @@ async function evaluateEvent(event, producer, isRevision) {
       timestamp: Date.now(),
     };
 
+    let dedupHash = undefined;
     // Use swarm dedup hash if swarm rule is present
     if (hasSwarmRule) {
       const swarmRule = alert.rules.find((r) => r.type === "swarm");
-      alertPayload.dedupHash = computeSwarmHash(
+      dedupHash = computeSwarmHash(
         swarmRule.swarmData.centerLon,
         swarmRule.swarmData.centerLat,
         alert.chatId,
@@ -203,33 +177,31 @@ async function evaluateEvent(event, producer, isRevision) {
       );
     }
 
-    await producer.send({
-      topic: TOPICS.ALERTS,
-      messages: [{ key: String(alert.chatId), value: JSON.stringify(alertPayload) }],
+    const saved = await saveAlert({
+      eventId: id,
+      chatId: String(alert.chatId),
+      ruleType: alert.rules.map((r) => r.type).join(","),
+      severity,
+      message: formatAlertMessage(alertPayload),
+      isRevision,
+      dedupHash,
     });
 
-    log.info(
-      { eventId: id, chatId: String(alert.chatId), rules: alert.rules.map((r) => r.type), severity },
-      "alert produced"
-    );
+    if (saved) {
+      await prisma.$executeRawUnsafe(`NOTIFY earthquake_alerts, '{"id": ${saved.id}}'`);
+      log.info({ eventId: id, chatId: String(alert.chatId), rules: alert.rules.map((r) => r.type), severity }, "alert produced");
+    }
   }
 }
 
 /**
- * Re-evaluate a revised event (only if safety-critical fields changed).
+ * Re-evaluate a revised event.
  */
-async function evaluateRevision(payload, producer) {
-  const { eventId, revisions } = payload;
-  const criticalFields = ["mag", "alert", "tsunami", "mmi"];
-  if (!revisions.some((r) => criticalFields.includes(r.field))) return;
-
+export async function evaluateRevision(eventId) {
   const event = await getEventForReeval(eventId);
   if (!event) return;
 
-  log.info(
-    { eventId, changes: revisions.map((r) => `${r.field}: ${r.old}→${r.new}`) },
-    "re-evaluating revised event"
-  );
+  log.info({ eventId }, "re-evaluating revised event");
 
   await evaluateEvent({
     id: event.id,
@@ -241,7 +213,7 @@ async function evaluateRevision(payload, producer) {
     alert: event.alert,
     longitude: parseFloat(event.longitude),
     latitude: parseFloat(event.latitude),
-  }, producer, true);
+  }, true);
 }
 
 // ── Helpers ─────────────────────────────────────────────────

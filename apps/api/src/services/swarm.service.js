@@ -38,7 +38,7 @@ export async function detectSwarm(lon, lat, excludeEventId) {
           ST_SetSRID(ST_MakePoint(${lon}, ${lat}), 4326)::geography,
           ${SWARM_RADIUS_KM * 1000}
         )
-        AND event_time > NOW() - INTERVAL '${SWARM_WINDOW_HOURS} hours'
+        AND event_time > NOW() - INTERVAL '1 hour' * ${SWARM_WINDOW_HOURS}
         AND mag >= ${SWARM_MIN_MAG}
         AND id != ${excludeEventId}
     `;

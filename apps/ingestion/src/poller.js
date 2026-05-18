@@ -1,6 +1,6 @@
 /**
- * USGS Poller — fetches the GeoJSON feed, upserts to Postgres,
- * produces to Kafka. Handles staleness, backoff, source silence alerts.
+ * USGS Poller — fetches the GeoJSON feed, upserts to Postgres.
+ * Handles staleness, backoff, source silence alerts via NOTIFY.
  */
 
 import { config } from "../../../shared/config.js";
@@ -8,14 +8,13 @@ import { createLogger } from "../../../shared/logger.js";
 import prisma from "../../../shared/db/client.js";
 import { upsertEarthquake } from "./services/earthquake.service.js";
 import { recordPollHealth } from "./services/health.service.js";
-import { produceRawEvent, produceRevisions } from "./producer.js";
 
 const log = createLogger("poller");
 
 let lastGenerated = 0;
 let consecutiveFailures = 0;
 let lastSuccessAt = Date.now();
-const MAX_FAILURES_BEFORE_ALERT = 5;
+const SOURCE_SILENCE_MS = 10 * 60 * 1000; // 10 minutes
 let sourceSilenceAlerted = false; // prevent re-alerting every poll
 
 /**
@@ -32,7 +31,7 @@ export function getBackoffMs() {
 }
 
 /**
- * Single poll cycle — fetch → parse → upsert → produce → health.
+ * Single poll cycle — fetch → parse → upsert → health.
  */
 export async function pollOnce() {
   const start = Date.now();
@@ -40,7 +39,6 @@ export async function pollOnce() {
   let eventsFetched = 0;
   let newEvents = 0;
   let revisionCount = 0;
-  let kafkaFailures = 0;
   let errorMessage = null;
 
   try {
@@ -68,69 +66,9 @@ export async function pollOnce() {
 
     for (const feature of data.features || []) {
       try {
-        const p = feature.properties;
-        const isCritical = p.tsunami === 1 || (p.mag != null && p.mag >= 6.0);
-
-        if (isCritical) {
-          // ── CRITICAL PATH: Kafka-first ────────────────────
-          // For life-safety events, get the alert pipeline started
-          // before waiting on Postgres. Every second counts.
-          const [lon, lat, depth] = feature.geometry.coordinates;
-          const quickEvent = {
-            id: feature.id, mag: p.mag, place: p.place, sig: p.sig,
-            tsunami: p.tsunami, depth, alert: p.alert, longitude: lon,
-            latitude: lat, time: p.time, magType: p.magType, status: p.status,
-          };
-
-          try {
-            await produceRawEvent(quickEvent);
-            log.info({ id: feature.id, mag: p.mag, tsunami: p.tsunami }, "CRITICAL event — Kafka-first");
-          } catch (kafkaErr) {
-            kafkaFailures++;
-            log.error({ kafkaErr, eventId: feature.id }, "CRITICAL Kafka produce failed");
-          }
-
-          // Then persist to Postgres
-          const result = await upsertEarthquake(feature);
-          if (result.isNew) newEvents++;
-          if (result.revisions.length > 0) {
-            revisionCount += result.revisions.length;
-            await produceRevisions(feature.id, result.revisions).catch(() => {});
-          }
-        } else {
-          // ── NORMAL PATH: Postgres-first ───────────────────
-          // Consistency over speed — persist, then produce.
-          const result = await upsertEarthquake(feature);
-
-          if (result.isNew) {
-            newEvents++;
-            try {
-              await produceRawEvent(result.event);
-            } catch (kafkaErr) {
-              kafkaFailures++;
-              log.error({ kafkaErr, eventId: feature.id }, "Kafka produce failed — marking for retry");
-              await prisma.earthquake.update({
-                where: { id: feature.id },
-                data: { kafkaPending: true },
-              }).catch(() => {});
-            }
-          }
-
-          if (result.revisions.length > 0) {
-            revisionCount += result.revisions.length;
-            try {
-              await produceRawEvent(result.event);
-              await produceRevisions(feature.id, result.revisions);
-            } catch (kafkaErr) {
-              kafkaFailures++;
-              log.error({ kafkaErr, eventId: feature.id }, "Kafka revision produce failed");
-              await prisma.earthquake.update({
-                where: { id: feature.id },
-                data: { kafkaPending: true },
-              }).catch(() => {});
-            }
-          }
-        }
+        const result = await upsertEarthquake(feature);
+        if (result.isNew) newEvents++;
+        if (result.revisions.length > 0) revisionCount += result.revisions.length;
       } catch (err) {
         log.error({ err, eventId: feature.id }, "failed to process event");
       }
@@ -140,11 +78,7 @@ export async function pollOnce() {
     lastSuccessAt = Date.now();
     sourceSilenceAlerted = false;
 
-    if (kafkaFailures > 0) {
-      log.warn({ kafkaFailures, total: eventsFetched }, "some events failed Kafka produce — marked as kafkaPending");
-    }
-
-    log.info({ eventsFetched, newEvents, revisions: revisionCount, kafkaFailures, ms: Date.now() - start }, "poll cycle complete");
+    log.info({ eventsFetched, newEvents, revisions: revisionCount, ms: Date.now() - start }, "poll cycle complete");
   } catch (err) {
     status = "error";
     errorMessage = err.message;
@@ -152,11 +86,11 @@ export async function pollOnce() {
 
     log.error({ err, consecutiveFailures, backoffMs: getBackoffMs() }, "poll cycle failed");
 
-    // Source silence detection — alert all users via Kafka
-    if (consecutiveFailures >= MAX_FAILURES_BEFORE_ALERT && !sourceSilenceAlerted) {
+    // Source silence detection — alert all users via NOTIFY
+    if (Date.now() - lastSuccessAt > SOURCE_SILENCE_MS && !sourceSilenceAlerted) {
       sourceSilenceAlerted = true;
       try {
-        await produceRawEvent({
+        const payload = JSON.stringify({
           id: `system:source_silence:${Date.now()}`,
           _systemAlert: true,
           alertType: "source_silence",
@@ -164,6 +98,7 @@ export async function pollOnce() {
           lastSuccessAt,
           place: "System — USGS Source Silence",
         });
+        await prisma.$executeRawUnsafe(`NOTIFY earthquake_raw, '${payload}'`);
         log.fatal({ consecutiveFailures }, "SOURCE SILENCE alert produced");
       } catch (alertErr) {
         log.error({ alertErr }, "failed to produce source silence alert");

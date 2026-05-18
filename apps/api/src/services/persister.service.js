@@ -8,10 +8,9 @@
  */
 
 import { createLogger } from "../../../../shared/logger.js";
-import { TOPICS } from "../../../../shared/kafka/topics.js";
 import { getLocationsByIds } from "../services/location.service.js";
 
-const log = createLogger("consumer:persister");
+const log = createLogger("persister");
 
 /**
  * SSE client registry.
@@ -75,7 +74,7 @@ export function broadcastRiskUpdate(payload) {
 /**
  * Broadcast an event to SSE clients, filtered by their locations.
  */
-function broadcastToSSE(event) {
+export function broadcastToSSE(event) {
   const eventLon = parseFloat(event.longitude) || parseFloat(event.geometry?.coordinates?.[0]);
   const eventLat = parseFloat(event.latitude) || parseFloat(event.geometry?.coordinates?.[1]);
 
@@ -121,29 +120,3 @@ function toRad(deg) {
   return (deg * Math.PI) / 180;
 }
 
-/**
- * Start the persister consumer.
- * @param {import('kafkajs').Consumer} consumer
- */
-export async function startPersister(consumer) {
-  await consumer.subscribe({ topic: TOPICS.RAW, fromBeginning: false });
-
-  await consumer.run({
-    eachMessage: async ({ message }) => {
-      try {
-        const event = JSON.parse(message.value.toString());
-
-        // Skip backfill events for SSE broadcast
-        if (event._backfill) return;
-
-        broadcastToSSE(event);
-
-        log.debug({ id: event.id, mag: event.mag }, "event processed for SSE");
-      } catch (err) {
-        log.error({ err }, "persister failed to process message");
-      }
-    },
-  });
-
-  log.info("persister consumer running");
-}

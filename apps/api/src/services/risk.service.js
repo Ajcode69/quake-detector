@@ -11,7 +11,8 @@
 
 import prisma from "../../../../shared/db/client.js";
 import { createLogger } from "../../../../shared/logger.js";
-import { TOPICS } from "../../../../shared/kafka/topics.js";
+import { saveAlert } from "./alert.service.js";
+import { formatAlertMessage } from "./notifier.service.js";
 
 const log = createLogger("service:risk");
 
@@ -32,10 +33,9 @@ const AFTERSHOCK_DECAY = [
 
 /**
  * Main orchestrator — compute scores for ALL locations, store, broadcast, alert.
- * @param {import('kafkajs').Producer} producer - Kafka producer for alerts
  * @param {(payload: object) => void} broadcastFn - SSE broadcast function
  */
-export async function computeAndBroadcast(producer, broadcastFn) {
+export async function computeAndBroadcast(broadcastFn) {
   const locations = await prisma.userLocation.findMany({
     select: {
       id: true, label: true, latitude: true, longitude: true,
@@ -71,8 +71,8 @@ export async function computeAndBroadcast(producer, broadcastFn) {
         largestMag24h: scores.largestMag24h,
       }});
 
-      // Check alert thresholds → produce to Kafka alerts topic
-      await checkAndAlert(loc, scores, producer);
+      // Check alert thresholds → notify listeners
+      await checkAndAlert(loc, scores);
     } catch (err) {
       log.error({ err, locationId: loc.id }, "failed to compute scores for location");
     }
@@ -458,7 +458,7 @@ function getActionGuidance(displayedRisk, triggerEvent) {
 
 // ── Alert production ────────────────────────────────────────
 
-async function checkAndAlert(loc, scores, producer) {
+async function checkAndAlert(loc, scores) {
   const alerts = [];
 
   if (scores.staticScore >= STATIC_ALERT_THRESHOLD) {
@@ -517,15 +517,22 @@ async function checkAndAlert(loc, scores, producer) {
     timestamp: Date.now(),
   };
 
-  await producer.send({
-    topic: TOPICS.ALERTS,
-    messages: [{ key: String(loc.telegramChatId), value: JSON.stringify(alertPayload) }],
+  const saved = await saveAlert({
+    eventId: alertPayload.eventId,
+    chatId: alertPayload.chatId,
+    ruleType: alertPayload.rules.map((r) => r.type).join(","),
+    severity,
+    message: formatAlertMessage(alertPayload),
+    isRevision: false,
   });
 
-  log.info(
-    { locationId: loc.id, rules: alerts.map((r) => r.type), severity, displayedRisk: scores.displayedRisk },
-    "risk alert produced"
-  );
+  if (saved) {
+    await prisma.$executeRawUnsafe(`NOTIFY earthquake_alerts, '{"id": ${saved.id}}'`);
+    log.info(
+      { locationId: loc.id, rules: alerts.map((r) => r.type), severity, displayedRisk: scores.displayedRisk },
+      "risk alert produced"
+    );
+  }
 }
 
 // ── Spatial query ───────────────────────────────────────────
@@ -544,9 +551,9 @@ async function getEventsInRadius(lon, lat, radiusKm, hoursBack) {
           ST_SetSRID(ST_MakePoint($1, $2), 4326)::geography,
           $3 * 1000
         )
-        AND e.event_time > NOW() - INTERVAL '${hoursBack} hours'
+        AND e.event_time > NOW() - INTERVAL '1 hour' * $4
       ORDER BY e.event_time DESC
-    `, lon, lat, radiusKm);
+    `, lon, lat, radiusKm, hoursBack);
   } catch (err) {
     log.error({ err, lon, lat, radiusKm }, "failed to query events in radius");
     return [];

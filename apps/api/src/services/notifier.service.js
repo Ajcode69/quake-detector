@@ -5,65 +5,34 @@
  */
 
 import { createLogger } from "../../../../shared/logger.js";
-import { TOPICS } from "../../../../shared/kafka/topics.js";
-import { saveAlert, markAlertSent } from "../services/alert.service.js";
+import { markAlertSent } from "../services/alert.service.js";
 import { config } from "../../../../shared/config.js";
+import prisma from "../../../../shared/db/client.js";
 
-const log = createLogger("consumer:notifier");
+const log = createLogger("notifier");
 
 const TELEGRAM_API = `https://api.telegram.org/bot${config.telegramBotToken}`;
-const RATE_LIMIT_DELAY_MS = 35;
 
-export async function startNotifier(consumer) {
-  await consumer.subscribe({ topic: TOPICS.ALERTS, fromBeginning: false });
+export async function processAlertId(alertId) {
+  try {
+    const saved = await prisma.alertLog.findUnique({ where: { id: alertId } });
+    if (!saved || saved.sent) return;
 
-  await consumer.run({
-    eachMessage: async ({ message }) => {
-      try {
-        const alert = JSON.parse(message.value.toString());
-        await processAlert(alert);
-        await sleep(RATE_LIMIT_DELAY_MS);
-      } catch (err) {
-        log.error({ err }, "notifier failed to process message");
-      }
-    },
-  });
-
-  log.info("notifier consumer running");
-}
-
-async function processAlert(alert) {
-  const { eventId, chatId, rules, severity, isRevision, event, dedupHash } = alert;
-  const message = formatAlertMessage(alert);
-
-  const saved = await saveAlert({
-    eventId,
-    chatId,
-    ruleType: rules.map((r) => r.type).join(","),
-    severity,
-    message,
-    isRevision,
-    dedupHash,
-  });
-
-  // If saveAlert returned null, it was a dedup conflict — skip send
-  if (!saved) {
-    log.debug({ eventId, chatId }, "alert dedup at notifier — skipping send");
-    return;
-  }
-
-  const sent = await sendTelegram(chatId, message);
-  if (sent) {
-    await markAlertSent(saved.id);
-    log.info({ eventId, chatId, severity }, "alert delivered");
-  } else {
-    log.warn({ eventId, chatId, alertId: saved.id }, "alert saved but delivery failed — retry sweep will pick it up");
+    const sent = await sendTelegram(saved.chatId, saved.message);
+    if (sent) {
+      await markAlertSent(saved.id);
+      log.info({ alertId: saved.id, chatId: String(saved.chatId), severity: saved.severity }, "alert delivered");
+    } else {
+      log.warn({ alertId: saved.id, chatId: String(saved.chatId) }, "alert saved but delivery failed — retry sweep will pick it up");
+    }
+  } catch (err) {
+    log.error({ err, alertId }, "failed to process alert");
   }
 }
 
 // ── Message formatting ──────────────────────────────────────
 
-function formatAlertMessage(alert) {
+export function formatAlertMessage(alert) {
   const { rules, _systemAlert, riskScores } = alert;
 
   // System alerts (source silence)
