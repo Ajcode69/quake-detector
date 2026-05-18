@@ -17,6 +17,7 @@ import { startNotifier } from "./consumers/notifier.js";
 import eventsRouter from "./routes/events.js";
 import healthRouter from "./routes/health.js";
 import locationsRouter from "./routes/locations.js";
+import geocodeRouter from "./routes/geocode.js";
 import sseRouter from "./routes/sse.js";
 
 const log = createLogger("api");
@@ -36,6 +37,7 @@ app.use((_req, res, next) => {
 app.use("/api/events", eventsRouter);
 app.use("/api/health", healthRouter);
 app.use("/api/locations", locationsRouter);
+app.use("/api/geocode", geocodeRouter);
 app.use("/api/stream", sseRouter);
 app.get("/", (_req, res) => res.json({ service: "quake-detector-api", status: "ok" }));
 
