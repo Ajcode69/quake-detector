@@ -68,35 +68,67 @@ export async function pollOnce() {
 
     for (const feature of data.features || []) {
       try {
-        const result = await upsertEarthquake(feature);
+        const p = feature.properties;
+        const isCritical = p.tsunami === 1 || (p.mag != null && p.mag >= 6.0);
 
-        if (result.isNew) {
-          newEvents++;
+        if (isCritical) {
+          // ── CRITICAL PATH: Kafka-first ────────────────────
+          // For life-safety events, get the alert pipeline started
+          // before waiting on Postgres. Every second counts.
+          const [lon, lat, depth] = feature.geometry.coordinates;
+          const quickEvent = {
+            id: feature.id, mag: p.mag, place: p.place, sig: p.sig,
+            tsunami: p.tsunami, depth, alert: p.alert, longitude: lon,
+            latitude: lat, time: p.time, magType: p.magType, status: p.status,
+          };
+
           try {
-            await produceRawEvent(result.event);
+            await produceRawEvent(quickEvent);
+            log.info({ id: feature.id, mag: p.mag, tsunami: p.tsunami }, "CRITICAL event — Kafka-first");
           } catch (kafkaErr) {
             kafkaFailures++;
-            log.error({ kafkaErr, eventId: feature.id }, "Kafka produce failed — marking for retry");
-            // Mark in DB for Kafka sweep to pick up later
-            await prisma.earthquake.update({
-              where: { id: feature.id },
-              data: { kafkaPending: true },
-            }).catch(() => {}); // best-effort
+            log.error({ kafkaErr, eventId: feature.id }, "CRITICAL Kafka produce failed");
           }
-        }
 
-        if (result.revisions.length > 0) {
-          revisionCount += result.revisions.length;
-          try {
-            await produceRawEvent(result.event);
-            await produceRevisions(feature.id, result.revisions);
-          } catch (kafkaErr) {
-            kafkaFailures++;
-            log.error({ kafkaErr, eventId: feature.id }, "Kafka revision produce failed");
-            await prisma.earthquake.update({
-              where: { id: feature.id },
-              data: { kafkaPending: true },
-            }).catch(() => {});
+          // Then persist to Postgres
+          const result = await upsertEarthquake(feature);
+          if (result.isNew) newEvents++;
+          if (result.revisions.length > 0) {
+            revisionCount += result.revisions.length;
+            await produceRevisions(feature.id, result.revisions).catch(() => {});
+          }
+        } else {
+          // ── NORMAL PATH: Postgres-first ───────────────────
+          // Consistency over speed — persist, then produce.
+          const result = await upsertEarthquake(feature);
+
+          if (result.isNew) {
+            newEvents++;
+            try {
+              await produceRawEvent(result.event);
+            } catch (kafkaErr) {
+              kafkaFailures++;
+              log.error({ kafkaErr, eventId: feature.id }, "Kafka produce failed — marking for retry");
+              await prisma.earthquake.update({
+                where: { id: feature.id },
+                data: { kafkaPending: true },
+              }).catch(() => {});
+            }
+          }
+
+          if (result.revisions.length > 0) {
+            revisionCount += result.revisions.length;
+            try {
+              await produceRawEvent(result.event);
+              await produceRevisions(feature.id, result.revisions);
+            } catch (kafkaErr) {
+              kafkaFailures++;
+              log.error({ kafkaErr, eventId: feature.id }, "Kafka revision produce failed");
+              await prisma.earthquake.update({
+                where: { id: feature.id },
+                data: { kafkaPending: true },
+              }).catch(() => {});
+            }
           }
         }
       } catch (err) {

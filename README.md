@@ -127,14 +127,42 @@ Swarm = 5+ events within 50km radius in the last 6 hours
 | Telegram delivery fails | 3x retry with exponential backoff → unsent sweep cron every 5 min |
 | USGS silent for 5+ polls | Source silence system alert sent to all users (one-shot, not repeated) |
 
+### Write Ordering: Consistency vs. Alert Latency
+
+The ingestion worker writes to **both** Postgres and Kafka for every event. The write order depends on severity:
+
+| Event type | Write order | Rationale |
+|------------|------------|----------|
+| **Critical** (M≥6.0 or tsunami) | **Kafka first**, then Postgres | Alert pipeline starts immediately — every second counts for life-safety |
+| **Normal** (everything else) | **Postgres first**, then Kafka | Consistency over speed — ensure queryable record before streaming |
+
+This is a deliberate CAP trade-off:
+- If **Postgres is down**: normal events are lost, but critical events still reach Kafka and trigger alerts
+- If **Kafka is down**: events persist in Postgres (API still serves them), marked `kafkaPending` for later re-produce
+- The evaluator uses an **in-memory location cache** (refreshed every 60s) so it can evaluate alerts from Kafka without hitting Postgres at all
+
+### In-Memory Location Cache
+
+The evaluator needs user locations to determine WHO to alert. Instead of hitting Postgres on every event:
+
+- `location.cache.js` loads all user locations into memory on startup
+- Refreshes every 60 seconds (locations rarely change)
+- Uses in-memory haversine for proximity matching (< 1ms vs. ~5ms PostGIS)
+- If Postgres is slow/down during an event, the evaluator still works with stale cache
+
+This makes the alert hot path: `Kafka read → in-memory proximity check → Kafka produce` — **zero Postgres dependency**.
+
 ### Spatial Queries
 
-PostGIS is used throughout — not application-level haversine:
+We use different strategies depending on latency requirements:
 
-- `ST_DWithin(geog, point, radius_km * 1000)` for proximity alerts
-- `ST_Distance(geog, point)` for distance display
-- `ST_SetSRID(ST_MakePoint(lon, lat), 4326)::geography` for spatial indexing
-- Exception: SSE filtering uses in-memory haversine to avoid DB round-trip per event
+| Approach | Latency | Accuracy | Use case |
+|----------|---------|----------|----------|
+| PostGIS `ST_DWithin` | ~5ms | Geodesic (exact) | Event queries, swarm detection |
+| In-memory haversine | < 1ms | Great-circle (±0.5%) | SSE broadcast, **alert evaluation** |
+
+- PostGIS for correctness (event listing API, swarm cluster queries)
+- Haversine for speed (evaluator hot path, SSE filtering)
 
 ### Location Search
 
@@ -292,6 +320,10 @@ If USGS goes down, the system should not silently stop working. Our approach:
 - Exponential backoff prevents hammering a down API
 - After 5 consecutive failures, a one-shot source silence alert goes to all users
 - The `poll_health` table provides audit trail for post-mortem
+
+### 7. Write ordering is a product decision, not a technical one
+
+We asked: "If Postgres is slow, should we delay the tsunami alert?" The answer is no. So critical events (M≥6.0, tsunami) produce to Kafka FIRST and persist to Postgres SECOND. Normal events do the opposite (Postgres-first for consistency). Combined with the in-memory location cache, this means a tsunami alert can fire without touching Postgres at all on the hot path.
 
 ---
 

@@ -10,7 +10,8 @@
 
 import { createLogger } from "../../../../shared/logger.js";
 import { TOPICS } from "../../../../shared/kafka/topics.js";
-import { findNearbyLocations, getAllChatIds, getEventForReeval } from "../services/earthquake.service.js";
+import { getEventForReeval } from "../services/earthquake.service.js";
+import { findNearbyLocationsCached, getAllChatIdsCached, startLocationCache } from "../services/location.cache.js";
 import { isDuplicateAlert, isSwarmDuplicate, computeSwarmHash } from "../services/alert.service.js";
 import { detectSwarm, SWARM_WINDOW_HOURS, SWARM_RADIUS_KM } from "../services/swarm.service.js";
 import prisma from "../../../../shared/db/client.js";
@@ -27,6 +28,9 @@ const SIGNIFICANT_SIG_THRESHOLD = 600;
  * Start the evaluator consumer.
  */
 export async function startEvaluator(consumer, producer) {
+  // Start the in-memory location cache BEFORE subscribing
+  await startLocationCache();
+
   await consumer.subscribe({ topics: [TOPICS.RAW, TOPICS.REVISIONS], fromBeginning: false });
 
   await consumer.run({
@@ -59,7 +63,7 @@ export async function startEvaluator(consumer, producer) {
  * Handle system alerts (source silence, etc.).
  */
 async function handleSystemAlert(payload, producer) {
-  const chatIds = await getAllChatIds();
+  const chatIds = getAllChatIdsCached();
   for (const chatId of chatIds) {
     await producer.send({
       topic: TOPICS.ALERTS,
@@ -93,7 +97,7 @@ async function evaluateEvent(event, producer, isRevision) {
 
   // Rule 1a: Global magnitude
   if (mag >= GLOBAL_MAG_THRESHOLD) {
-    const chatIds = await getAllChatIds();
+    const chatIds = getAllChatIdsCached();
     for (const chatId of chatIds) {
       addOrMergeAlert(triggeredAlerts, chatId, {
         type: "global",
@@ -104,7 +108,7 @@ async function evaluateEvent(event, producer, isRevision) {
 
   // Rule 1b: Tsunami
   if (tsunami === 1) {
-    const chatIds = await getAllChatIds();
+    const chatIds = getAllChatIdsCached();
     for (const chatId of chatIds) {
       addOrMergeAlert(triggeredAlerts, chatId, {
         type: "tsunami",
@@ -116,7 +120,7 @@ async function evaluateEvent(event, producer, isRevision) {
   // ── Tier 2: Location-based alerts (per-user) ─────────────
 
   if (mag >= 1.0 && longitude != null && latitude != null) {
-    const nearbyLocations = await findNearbyLocations(longitude, latitude);
+    const nearbyLocations = findNearbyLocationsCached(longitude, latitude);
 
     for (const loc of nearbyLocations) {
       // Load custom rules for this user+location
@@ -147,7 +151,7 @@ async function evaluateEvent(event, producer, isRevision) {
     const swarm = await detectSwarm(longitude, latitude, id);
 
     if (swarm) {
-      const nearbyLocations = await findNearbyLocations(longitude, latitude);
+      const nearbyLocations = findNearbyLocationsCached(longitude, latitude);
 
       for (const loc of nearbyLocations) {
         // Check swarm-specific dedup (cluster-center + time window)
