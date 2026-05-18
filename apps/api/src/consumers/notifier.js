@@ -64,7 +64,7 @@ async function processAlert(alert) {
 // ── Message formatting ──────────────────────────────────────
 
 function formatAlertMessage(alert) {
-  const { rules, _systemAlert } = alert;
+  const { rules, _systemAlert, riskScores } = alert;
 
   // System alerts (source silence)
   if (_systemAlert) return formatSystemAlert(alert);
@@ -72,6 +72,10 @@ function formatAlertMessage(alert) {
   // Swarm alerts
   const swarmRule = rules.find((r) => r.type === "swarm");
   if (swarmRule) return formatSwarmAlert(alert, swarmRule);
+
+  // Risk score alerts
+  const riskRule = rules.find((r) => r.type?.startsWith("risk_"));
+  if (riskRule) return formatRiskAlert(alert);
 
   // Normal earthquake alerts
   return formatEarthquakeAlert(alert);
@@ -115,6 +119,33 @@ function formatSwarmAlert(alert, swarmRule) {
   }
 
   msg += `\n_This may indicate elevated seismic activity in the region. Individual events are small, but the pattern is noteworthy._`;
+
+  return msg;
+}
+
+function formatRiskAlert(alert) {
+  const { rules, riskScores, actionGuidance, event } = alert;
+
+  const emoji = { critical: "🔴", warning: "🟡", info: "🔵" };
+  const levelEmoji = emoji[alert.severity] || "⚪";
+
+  let msg = `${levelEmoji} *RISK SCORE ALERT*\n\n`;
+  msg += `📍 *${event.place}*\n\n`;
+
+  if (riskScores) {
+    msg += `📊 *Risk Scores:*\n`;
+    msg += `  • Static: ${riskScores.static}/100\n`;
+    msg += `  • Trend: ${riskScores.delta}/100\n`;
+    msg += `  • Post-Event: ${riskScores.postEvent}/100\n`;
+    msg += `  • **Overall: ${riskScores.displayed}/100 (${riskScores.level})**\n\n`;
+  }
+
+  msg += `*Triggered:*\n`;
+  msg += rules.map((r) => `  • _${r.type}_: ${r.reason}`).join("\n");
+
+  if (actionGuidance) {
+    msg += `\n\n💡 *Action:* ${actionGuidance.message}`;
+  }
 
   return msg;
 }

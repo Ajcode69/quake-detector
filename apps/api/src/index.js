@@ -14,6 +14,8 @@ import { createKafkaClient } from "../../../shared/kafka/client.js";
 import { startPersister } from "./consumers/persister.js";
 import { startEvaluator } from "./consumers/evaluator.js";
 import { startNotifier, sendTelegram } from "./consumers/notifier.js";
+import { broadcastRiskUpdate } from "./consumers/persister.js";
+import { computeAndBroadcast } from "./services/risk.service.js";
 import { getUnsentAlerts, markAlertSent } from "./services/alert.service.js";
 import eventsRouter from "./routes/events.js";
 import healthRouter from "./routes/health.js";
@@ -104,11 +106,31 @@ function scheduleAlertRetrySweep() {
   log.info("alert retry sweep scheduled (every 5 min)");
 }
 
+// ── Risk scoring cron (every 5 min) ─────────────────────────
+function scheduleRiskScoring(alertProducer) {
+  // Run once on startup after a short delay
+  setTimeout(() => {
+    computeAndBroadcast(alertProducer, broadcastRiskUpdate).catch((err) => {
+      log.error({ err }, "initial risk scoring failed");
+    });
+  }, 10_000);
+
+  cron.schedule("*/5 * * * *", async () => {
+    try {
+      await computeAndBroadcast(alertProducer, broadcastRiskUpdate);
+    } catch (err) {
+      log.error({ err }, "risk scoring cron failed");
+    }
+  });
+  log.info("risk scoring cron scheduled (every 5 min)");
+}
+
 // ── Main ────────────────────────────────────────────────────
 async function main() {
   const consumers = await startConsumers();
   scheduleDailyDigest();
   scheduleAlertRetrySweep();
+  scheduleRiskScoring(consumers.alertProducer);
 
   app.listen(config.port, () => {
     log.info({ port: config.port }, "API server listening");

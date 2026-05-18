@@ -122,6 +122,46 @@ export function useLocations() {
   return { locations, locationIds, loading, addLocation, removeLocation };
 }
 
+/**
+ * Hook: live risk scores from SSE.
+ * Listens for "risk_update" events on the existing SSE connection.
+ */
+export function useRiskScores(locationIds) {
+  const [riskScores, setRiskScores] = useState({});
+  const [lastUpdate, setLastUpdate] = useState(null);
+  const connectionRef = useRef(null);
+
+  useEffect(() => {
+    if (!locationIds || locationIds.length === 0) {
+      setRiskScores({});
+      return;
+    }
+
+    if (connectionRef.current) connectionRef.current.close();
+
+    const conn = connectSSE((data) => {
+      if (data.type === "risk_update" && data.scores) {
+        const scoreMap = {};
+        for (const score of data.scores) {
+          // Only keep scores for locations the user is monitoring
+          if (locationIds.includes(score.locationId)) {
+            scoreMap[score.locationId] = score;
+          }
+        }
+        if (Object.keys(scoreMap).length > 0) {
+          setRiskScores((prev) => ({ ...prev, ...scoreMap }));
+          setLastUpdate(data.timestamp);
+        }
+      }
+    }, locationIds);
+
+    connectionRef.current = conn;
+    return () => conn.close();
+  }, [locationIds]);
+
+  return { riskScores, lastUpdate };
+}
+
 function getChatId() {
   let id = localStorage.getItem("quake_chat_id");
   if (!id) {

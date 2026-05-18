@@ -91,8 +91,33 @@ model UserLocation {
   geog           Unsupported("geography(Point, 4326)")?
 
   alertRules     UserAlertRule[]
+  riskScores     LocationRiskScore[]
 
   @@map("user_locations")
+}
+
+// ── Location risk scores ────────────────────────────────────
+// Time-series of computed risk scores per location per poll cycle.
+model LocationRiskScore {
+  id                    Int      @id @default(autoincrement())
+  locationId            Int      @map("location_id")
+  timestamp             DateTime @default(now())
+  staticScore           Float    @map("static_score")
+  deltaScore            Float    @map("delta_score")
+  postEventScore        Float    @map("post_event_score")
+  displayedRisk         Float    @map("displayed_risk")
+  riskLevel             String   @map("risk_level")            // Low, Moderate, High, Critical
+  triggerEventId        String?  @map("trigger_event_id")
+  aftershockWindowActive Boolean @default(false) @map("aftershock_window_active")
+  expectedAftershockMag Float?  @map("expected_aftershock_mag")
+  eventsInRadius1h      Int     @default(0) @map("events_in_radius_1h")
+  eventsInRadius24h     Int     @default(0) @map("events_in_radius_24h")
+  largestMag24h         Float?  @map("largest_mag_24h")
+
+  location              UserLocation @relation(fields: [locationId], references: [id], onDelete: Cascade)
+
+  @@index([locationId, timestamp(sort: Desc)])
+  @@map("location_risk_scores")
 }
 
 // ── Alert audit log ─────────────────────────────────────────

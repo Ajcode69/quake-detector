@@ -58,6 +58,21 @@ export function removeSSEClient(clientId) {
 }
 
 /**
+ * Broadcast a risk score update to ALL SSE clients.
+ * Risk scores are per-location, so every connected client receives them
+ * (the frontend filters by its own locationIds).
+ */
+export function broadcastRiskUpdate(payload) {
+  for (const [clientId, client] of sseClients) {
+    try {
+      client.res.write(`data: ${JSON.stringify(payload)}\n\n`);
+    } catch {
+      sseClients.delete(clientId);
+    }
+  }
+}
+
+/**
  * Broadcast an event to SSE clients, filtered by their locations.
  */
 function broadcastToSSE(event) {

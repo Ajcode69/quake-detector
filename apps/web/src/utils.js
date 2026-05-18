@@ -43,3 +43,25 @@ export function sigLabel(sig) {
   if (sig >= 200) return "Moderate";
   return "Low";
 }
+
+/**
+ * Risk level → color classes.
+ */
+export function riskColorClass(level) {
+  switch (level) {
+    case "Critical": return { bg: "bg-red-500", text: "text-red-400", glow: "shadow-red-500/30", border: "border-red-500/40", bgLight: "bg-red-500/10" };
+    case "High": return { bg: "bg-orange-500", text: "text-orange-400", glow: "shadow-orange-500/30", border: "border-orange-500/40", bgLight: "bg-orange-500/10" };
+    case "Moderate": return { bg: "bg-yellow-500", text: "text-yellow-400", glow: "shadow-yellow-500/30", border: "border-yellow-500/40", bgLight: "bg-yellow-500/10" };
+    default: return { bg: "bg-green-500", text: "text-green-400", glow: "shadow-green-500/30", border: "border-green-500/40", bgLight: "bg-green-500/10" };
+  }
+}
+
+/**
+ * Score → risk level string.
+ */
+export function scoreToLevel(score) {
+  if (score >= 75) return "Critical";
+  if (score >= 50) return "High";
+  if (score >= 25) return "Moderate";
+  return "Low";
+}
