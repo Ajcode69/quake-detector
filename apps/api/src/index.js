@@ -21,6 +21,10 @@ import healthRouter from "./routes/health.js";
 import locationsRouter from "./routes/locations.js";
 import geocodeRouter from "./routes/geocode.js";
 import sseRouter from "./routes/sse.js";
+import statsRouter from "./routes/stats.js";
+import alertsRouter from "./routes/alerts.js";
+import healthDetailedRouter from "./routes/health-detailed.js";
+import locationRiskRouter from "./routes/location-risk.js";
 
 const log = createLogger("api");
 const app = express();
@@ -41,6 +45,10 @@ app.use("/api/health", healthRouter);
 app.use("/api/locations", locationsRouter);
 app.use("/api/geocode", geocodeRouter);
 app.use("/api/stream", sseRouter);
+app.use("/api/stats", statsRouter);
+app.use("/api/alerts", alertsRouter);
+app.use("/api/health/detailed", healthDetailedRouter);
+app.use("/api/locations", locationRiskRouter);
 app.get("/", (_req, res) => res.json({ service: "quake-detector-api", status: "ok" }));
 
 

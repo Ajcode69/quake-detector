@@ -1,0 +1,36 @@
+Top-level fields
+metadata.generated — Unix timestamp (ms) of when USGS generated this feed response. Use this to detect feed staleness — if this stops changing across polls, the feed itself is frozen even if you're getting 200 OK responses.
+metadata.count — how many events are in this response. Useful for health monitoring — if this suddenly drops to 0 during an active period, something is likely wrong.
+bbox — bounding box of all events in the response: [min_longitude, min_latitude, min_depth, max_longitude, max_latitude, max_depth]. Low value for your use case, skip it.
+
+Per-event properties
+id (e.g. ci41468960) — the unique event identifier across USGS. This is your primary key for deduplication and upserts. Never skip this.
+mag — magnitude on the Richter-adjacent scale. The single most important field. Drives your global alert rule (≥5.0), your per-location alert rule (≥4.0 within 500km), and your risk score formula.
+place — human-readable description like "17 km WSW of Johannesburg, CA". Good for display in the dashboard and Telegram alerts. Not reliable for geo-queries — use coordinates for that.
+time — Unix timestamp (ms) of when the earthquake actually occurred. Use this for all time-window queries (last hour, 24h, 7d, 30d) and for swarm detection windows.
+updated — Unix timestamp (ms) of the last time USGS revised this event. This is how you detect in-place updates — if updated on an incoming event is newer than what you have stored, overwrite the record. Critical for your upsert logic.
+tz — timezone offset in minutes. Always null in modern data. Ignore it.
+url — link to the USGS event page. Include this in your Telegram alert messages as the "reference back to source" the assignment asks for.
+detail — URL to a more detailed GeoJSON for this specific event, with additional data like shakemap, moment tensor etc. You don't need to fetch it unless you want to enrich specific high-severity events.
+felt — number of people who submitted "Did You Feel It?" reports to USGS. A proxy for population impact. A M4.0 in a dense city might have felt=500; same magnitude in the ocean has felt=0. Good for weighting your risk score — a felt earthquake near a user's location is more alarming than an unfelt one.
+cdi — Community Internet Intensity (max reported shaking intensity, 1–10 scale, based on felt reports). Complements felt. If cdi is high but mag is moderate, it means shallow depth or dense population. Useful in risk scoring.
+mmi — Modified Mercalli Intensity (1–12 scale), estimated instrumentally by USGS shake models rather than felt reports. More reliable than cdi for remote/deep events where nobody submitted reports. Use this in your risk score when cdi is null.
+alert — PAGER alert level: green / yellow / orange / red. USGS's own assessment of likely casualties and economic loss. Null for most small earthquakes (PAGER only runs on significant events). When it's orange or red, that's an immediate high-priority alert regardless of magnitude. Definitely surface this prominently in your dashboard and Telegram alerts.
+status — either "automatic" or "reviewed". Automatic means a computer detected it; reviewed means a seismologist has verified it. A reviewed event is more reliable. You can show this as a confidence indicator in the dashboard. Also relevant for your update logic — an event transitioning from automatic to reviewed might also have revised magnitude.
+tsunami — 0 or 1. If 1, USGS has issued or evaluated a tsunami warning for this event. Treat this as a top-priority override — alert immediately regardless of magnitude or location.
+sig — significance score, 0 to 1000+, computed by USGS combining magnitude, felt reports, estimated impact, and other factors. Very useful field. You could use this as the primary sort key in your incident tracker instead of raw magnitude, since it already captures "how much does this matter." A M2.5 with sig=600 (widely felt, near a city) is more important than a M4.0 with sig=80 (deep, remote ocean).
+net — the seismic network that detected and reported this event (e.g. ci = California Integrated, nc = Northern California, us = USGS national). Relevant for data quality — us network events are often less precisely located than regional networks. Low dashboard value but useful to store for debugging data quality issues.
+code — the event code within its network. Combined with net gives you the full event ID. Just store it, you'll rarely use it directly.
+ids — comma-separated list of all IDs this event has been assigned across different networks. USGS sometimes merges duplicate detections from different networks into one event. If you see multiple IDs here, those were the same physical earthquake reported by multiple networks. Use this to avoid counting merged events as separate earthquakes in your swarm detection.
+sources — which networks contributed data to this event. Mirrors ids. Store it, low operational value.
+types — what data products USGS has available for this event (shakemap, moment tensor, phase-data etc.). Tells you how much additional detail is available if you fetch the detail URL. Low value unless you want to enrich high-severity events.
+nst — number of seismic stations used to determine the location. Higher is better. Low nst (under 5–10) means the location and magnitude are less reliable. You can factor this into a confidence indicator on the dashboard.
+dmin — distance in degrees from the epicenter to the nearest seismic station. Smaller is more accurate. Events with high dmin are poorly constrained in location. Low dashboard value but useful for data quality filtering.
+rms — root mean square of travel time residuals in seconds. A quality measure of how well the seismic wave arrival times fit the computed location. Lower is better. Typical good values are under 0.5. Not worth showing users but good for internal data quality filtering.
+gap — largest azimuthal gap in degrees between surrounding seismic stations. Large gap (>180°) means the epicenter location is less reliable because stations are clustered on one side. Again a data quality indicator rather than a user-facing field.
+magType — the method used to calculate magnitude: ml (local/Richter), md (duration), mw (moment), mb (body wave), etc. mw is the most scientifically rigorous and preferred for large earthquakes. Relevant because a md M3.0 and an mw M3.0 are not directly comparable. Worth storing and surfacing as a footnote on the dashboard.
+type — always "earthquake" in this feed (could be "quarry blast", "explosion" etc. in the detailed feed). Filter on this — non-earthquake events shouldn't factor into your risk scores or swarm detection.
+title — pre-formatted display string like "M 1.8 - 17 km WSW of Johannesburg, CA". Ready to use directly in Telegram messages and the incident list.
+
+Geometry
+coordinates — [longitude, latitude, depth_in_km]. The depth is the third element, not a separate field. Depth is critical — a M5.0 at 5km depth is far more destructive than a M5.0 at 200km depth. Factor depth into your risk score (shallower = higher risk). For geo-queries against user-selected locations, use longitude and latitude here.

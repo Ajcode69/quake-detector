@@ -10,18 +10,29 @@ export default {
       },
       colors: {
         surface: {
-          DEFAULT: "#0a0e17",
-          secondary: "#111827",
-          card: "#1a2332",
-          "card-hover": "#1f2b3d",
+          DEFAULT: "#080b12",
+          secondary: "#0d1117",
+          card: "#111827",
+          "card-hover": "#1a2332",
+          elevated: "#1e293b",
         },
         border: {
-          DEFAULT: "#2a3548",
+          DEFAULT: "#1e293b",
+          light: "#2a3548",
+        },
+        severity: {
+          critical: "#ef4444",
+          warning: "#f59e0b",
+          moderate: "#f97316",
+          info: "#3b82f6",
+          ok: "#22c55e",
         },
       },
       animation: {
         "pulse-dot": "pulseDot 2s ease-in-out infinite",
         "slide-in": "slideIn 0.4s ease-out",
+        "slide-up": "slideUp 0.3s ease-out",
+        "fade-in": "fadeIn 0.4s ease-out",
       },
       keyframes: {
         pulseDot: {
@@ -31,6 +42,14 @@ export default {
         slideIn: {
           from: { opacity: 0, transform: "translateX(-10px)" },
           to: { opacity: 1, transform: "translateX(0)" },
+        },
+        slideUp: {
+          from: { opacity: 0, transform: "translateY(8px)" },
+          to: { opacity: 1, transform: "translateY(0)" },
+        },
+        fadeIn: {
+          from: { opacity: 0 },
+          to: { opacity: 1 },
         },
       },
     },

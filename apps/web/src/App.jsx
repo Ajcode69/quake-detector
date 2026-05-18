@@ -1,121 +1,124 @@
-import { useEvents, useLiveEvents, useHealth, useLocations } from "./hooks/useQuakeData";
-import EventCard from "./components/EventCard";
-import StatCard from "./components/StatCard";
-import LocationManager from "./components/LocationManager";
+import { Outlet, NavLink, useLocation } from "react-router-dom";
+import { useState } from "react";
+import { useHealth, useSSE, useLocations } from "./hooks/useQuakeData";
+// SSE only receives critical events (M5+, PAGER orange/red, tsunami, swarm).
+// All routine data is polled.
+import { timeAgo } from "./utils";
+import SideDrawer from "./components/layout/SideDrawer";
+
+const NAV_ITEMS = [
+  { to: "/", label: "World View", icon: "🌍" },
+  { to: "/locations", label: "Locations", icon: "📍" },
+  { to: "/notifications", label: "Notifications", icon: "🔔" },
+  { to: "/health", label: "System Health", icon: "💚" },
+];
 
 export default function App() {
-  const { locations, locationIds, addLocation, removeLocation } = useLocations();
-  const { events, loading, error, reload } = useEvents(locationIds.length > 0 ? locationIds : undefined);
-  const { liveEvents, connected } = useLiveEvents(locationIds.length > 0 ? locationIds : undefined);
   const { health } = useHealth();
+  const { locations, locationIds, addLocation, removeLocation, reload: reloadLocations } = useLocations();
+  const { criticalEvents, riskScores, connected } = useSSE();
+  const [selectedEvent, setSelectedEvent] = useState(null);
+  const [searchQuery, setSearchQuery] = useState("");
+  const location = useLocation();
 
-  // Merge live SSE events on top of polled events, deduplicate by id
-  const seen = new Set();
-  const allEvents = [...liveEvents, ...events].filter((e) => {
-    if (seen.has(e.id)) return false;
-    seen.add(e.id);
-    return true;
-  });
-
-  const stats = health?.stats || {};
-  const isFiltered = locationIds.length > 0;
+  const feedOk = health?.status === "healthy";
+  const lastPoll = health?.lastPoll?.polledAt;
 
   return (
-    <div className="min-h-screen bg-surface font-sans">
-      <div className="max-w-5xl mx-auto px-4 sm:px-6 py-8">
-        {/* Header */}
-        <header className="flex items-center justify-between mb-8 pb-6 border-b border-border">
-          <h1 className="text-xl sm:text-2xl font-bold tracking-tight text-slate-100 flex items-center gap-2.5">
-            <span className="text-2xl">🌍</span>
-            QuakeDetector
-          </h1>
-          <div className="flex items-center gap-2.5 px-3.5 py-2 bg-surface-card border border-border rounded-full text-xs font-medium text-slate-400">
-            <span className={`w-2 h-2 rounded-full ${connected ? "bg-green-500 animate-pulse-dot" : "bg-red-500"}`} />
-            {connected ? "Live" : "Connecting..."}
+    <div className="min-h-screen bg-surface text-slate-200 font-sans flex flex-col">
+      {/* ── Navbar ──────────────────────────────────────────── */}
+      <header className="sticky top-0 z-50 bg-surface-secondary/95 backdrop-blur-md border-b border-border">
+        <div className="max-w-[1920px] mx-auto px-4 flex items-center h-12 gap-1">
+          {/* Brand */}
+          <div className="flex items-center gap-2 mr-6 shrink-0">
+            <div className="w-7 h-7 rounded-md bg-gradient-to-br from-red-500 to-orange-500 flex items-center justify-center text-xs font-black text-white">S</div>
+            <span className="text-sm font-bold tracking-tight text-slate-100 hidden sm:inline">SeismicOps</span>
           </div>
-        </header>
 
-        {/* Two-column layout: locations + stats */}
-        <div className="grid grid-cols-1 lg:grid-cols-[320px_1fr] gap-6 mb-8">
-          {/* Left: Location manager */}
-          <LocationManager
-            locations={locations}
-            onAdd={addLocation}
-            onRemove={removeLocation}
-          />
+          {/* Nav Tabs */}
+          <nav className="flex items-center gap-0.5">
+            {NAV_ITEMS.map((item) => (
+              <NavLink
+                key={item.to}
+                to={item.to}
+                end={item.to === "/"}
+                className={({ isActive }) =>
+                  `flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-all duration-150 ${
+                    isActive
+                      ? "bg-slate-700/50 text-white"
+                      : "text-slate-400 hover:text-slate-200 hover:bg-slate-800/40"
+                  }`
+                }
+              >
+                <span className="text-sm">{item.icon}</span>
+                <span className="hidden md:inline">{item.label}</span>
+              </NavLink>
+            ))}
+          </nav>
 
-          {/* Right: Stats */}
-          <div className="grid grid-cols-2 sm:grid-cols-2 gap-3 content-start">
-            <StatCard label="Total Events" value={stats.totalEvents ?? "—"} color="text-blue-400" icon="📡" />
-            <StatCard label="Last Hour" value={stats.eventsLastHour ?? "—"} color="text-cyan-400" icon="⏱️" />
-            <StatCard label="Alerts (24h)" value={stats.alerts24h ?? "—"} color="text-yellow-400" icon="🔔" />
-            <StatCard label="System" value={health?.status === "healthy" ? "OK" : "—"} color={health?.status === "healthy" ? "text-green-400" : "text-slate-500"} icon="💚" />
+          {/* Spacer */}
+          <div className="flex-1" />
+
+          {/* Search */}
+          <div className="relative hidden lg:block">
+            <input
+              type="text"
+              placeholder="Search events..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="w-52 bg-surface-card border border-border rounded-md px-3 py-1 text-xs text-slate-300 placeholder:text-slate-600 focus:outline-none focus:border-blue-500/50 focus:ring-1 focus:ring-blue-500/20 transition-all"
+            />
+            <span className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-600 text-[10px]">⌘K</span>
           </div>
-        </div>
 
-        {/* Event Feed */}
-        <div className="flex items-center justify-between mb-4">
-          <h2 className="text-sm font-semibold text-slate-400 uppercase tracking-wider flex items-center gap-2">
-            <span>📋</span>
-            {isFiltered ? "Earthquakes Near Your Locations" : "Recent Earthquakes (Global)"}
-          </h2>
-          <div className="flex items-center gap-3">
-            {isFiltered && (
-              <span className="text-[11px] text-blue-400/70 bg-blue-500/10 px-2 py-1 rounded">
-                Filtered by {locationIds.length} location{locationIds.length > 1 ? "s" : ""}
+          {/* Status indicators */}
+          <div className="flex items-center gap-3 ml-3">
+            {/* Feed status */}
+            <div className="flex items-center gap-1.5 text-[11px]">
+              <span className={`w-1.5 h-1.5 rounded-full ${feedOk ? "bg-green-500 animate-pulse-dot" : "bg-red-500"}`} />
+              <span className={feedOk ? "text-green-400" : "text-red-400"}>
+                {feedOk ? "Feed Live" : "Feed Down"}
+              </span>
+            </div>
+
+            {/* SSE status */}
+            <div className="flex items-center gap-1.5 text-[11px]">
+              <span className={`w-1.5 h-1.5 rounded-full ${connected ? "bg-blue-500" : "bg-slate-600"}`} />
+              <span className={connected ? "text-blue-400" : "text-slate-500"}>SSE</span>
+            </div>
+
+            {/* Last poll */}
+            {lastPoll && (
+              <span className="text-[10px] text-slate-500 hidden xl:inline font-mono">
+                Last poll: {timeAgo(lastPoll)}
               </span>
             )}
-            <button
-              onClick={reload}
-              className="text-xs text-slate-500 hover:text-blue-400 transition-colors px-3 py-1.5 rounded-lg hover:bg-surface-card"
-            >
-              ↻ Refresh
-            </button>
           </div>
         </div>
+      </header>
 
-        {loading ? (
-          <div className="flex items-center justify-center gap-1.5 py-16">
-            {[0, 1, 2].map((i) => (
-              <span
-                key={i}
-                className="w-2 h-2 bg-blue-500 rounded-full animate-bounce"
-                style={{ animationDelay: `${i * 0.16}s` }}
-              />
-            ))}
-          </div>
-        ) : error ? (
-          <div className="text-center py-16">
-            <div className="text-4xl mb-3">⚠️</div>
-            <p className="text-sm text-slate-500">Failed to load events. Is the API running?</p>
-            <p className="text-xs text-slate-600 mt-1 font-mono">{error}</p>
-          </div>
-        ) : allEvents.length === 0 ? (
-          <div className="text-center py-16">
-            <div className="text-4xl mb-3">{isFiltered ? "📍" : "🌎"}</div>
-            <p className="text-sm text-slate-500">
-              {isFiltered
-                ? "No earthquakes detected near your locations recently."
-                : "No events yet. Run the ingestion worker to start polling USGS."}
-            </p>
-          </div>
-        ) : (
-          <div className="flex flex-col gap-2">
-            {allEvents.map((event) => (
-              <EventCard key={event.id} event={event} isNew={event._isNew} />
-            ))}
-          </div>
-        )}
+      {/* ── Main Content ───────────────────────────────────── */}
+      <main className="flex-1 max-w-[1920px] w-full mx-auto">
+        <Outlet
+          context={{
+            health,
+            connected,
+            criticalEvents,
+            riskScores,
+            locations,
+            locationIds,
+            addLocation,
+            removeLocation,
+            reloadLocations,
+            selectedEvent,
+            setSelectedEvent,
+            searchQuery,
+          }}
+        />
+      </main>
 
-        {/* Footer */}
-        <footer className="mt-12 pt-6 border-t border-border text-center text-xs text-slate-600">
-          Data from{" "}
-          <a href="https://earthquake.usgs.gov/" target="_blank" rel="noopener noreferrer" className="text-blue-500/70 hover:text-blue-400 transition-colors">
-            USGS Earthquake Hazards Program
-          </a>
-          {" · "}QuakeDetector — Streaming-aware earthquake monitoring
-        </footer>
-      </div>
+      {/* ── Event Detail Drawer ────────────────────────────── */}
+      <SideDrawer event={selectedEvent} onClose={() => setSelectedEvent(null)} />
     </div>
   );
 }

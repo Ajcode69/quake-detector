@@ -1,16 +1,10 @@
-/**
- * Events routes — paginated, filterable earthquake list.
- */
+
 
 import { Router } from "express";
 import { getEvents, getEventById } from "../services/earthquake.service.js";
 
 const router = Router();
 
-/**
- * GET /api/events
- * Query: limit, offset, minMag, since, locations (comma-sep IDs)
- */
 router.get("/", async (req, res) => {
   try {
     const { limit = 50, offset = 0, minMag, since, locations } = req.query;
