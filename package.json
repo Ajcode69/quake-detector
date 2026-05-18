@@ -7,9 +7,10 @@
   "scripts": {
     "api": "node apps/api/src/index.js",
     "ingest": "node apps/ingestion/src/index.js",
+    "web": "npm run dev --prefix apps/web",
     "backfill": "node apps/ingestion/src/backfill.js",
     "migrate": "node scripts/migrate.js",
-    "dev": "concurrently \"npm run api\" \"npm run ingest\"",
+    "dev": "concurrently \"npm run api\" \"npm run ingest\" \"npm run web\"",
     "topics": "node scripts/setup-topics.js"
   },
   "dependencies": {
