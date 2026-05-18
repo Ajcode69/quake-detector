@@ -11,20 +11,17 @@
 
 import { createLogger } from "../../../../shared/logger.js";
 import { TOPICS } from "../../../../shared/kafka/topics.js";
-import { findNearbyLocations, isDuplicateAlert } from "../../../../shared/db/queries.js";
-import { query } from "../../../../shared/db/connection.js";
+import { findNearbyLocations, getAllChatIds, getEventForReeval } from "../services/earthquake.service.js";
+import { isDuplicateAlert } from "../services/alert.service.js";
 
 const log = createLogger("consumer:evaluator");
 
-// Thresholds — product judgment: these are the numbers we chose and can justify
 const GLOBAL_MAG_THRESHOLD = 5.0;
 const PROXIMITY_MAG_THRESHOLD = 3.0;
-const SIGNIFICANT_SIG_THRESHOLD = 600; // sig > 600 is noteworthy
+const SIGNIFICANT_SIG_THRESHOLD = 600;
 
 /**
  * Start the evaluator consumer.
- * @param {import('kafkajs').Consumer} consumer
- * @param {import('kafkajs').Producer} producer - to produce to alerts topic
  */
 export async function startEvaluator(consumer, producer) {
   await consumer.subscribe({ topics: [TOPICS.RAW, TOPICS.REVISIONS], fromBeginning: false });
@@ -33,8 +30,6 @@ export async function startEvaluator(consumer, producer) {
     eachMessage: async ({ topic, message }) => {
       try {
         const payload = JSON.parse(message.value.toString());
-
-        // Skip backfill events — don't alert on month-old earthquakes
         if (payload._backfill) return;
 
         if (topic === TOPICS.RAW) {
@@ -51,52 +46,47 @@ export async function startEvaluator(consumer, producer) {
   log.info("evaluator consumer running");
 }
 
-/**
- * Evaluate alert rules for a single event.
- * Merges all triggered rules into ONE alert per user (no duplicates).
- */
 async function evaluateEvent(event, producer, isRevision) {
   const { id, mag, tsunami, sig, longitude, latitude, place } = event;
-  const triggeredAlerts = []; // { chatId, rules[], severity }
+  const triggeredAlerts = [];
 
-  // ── Rule 1: Global magnitude ──────────────────────────────
+  // Rule 1: Global magnitude
   if (mag >= GLOBAL_MAG_THRESHOLD) {
-    const allUsers = await query("SELECT DISTINCT telegram_chat_id FROM user_locations");
-    for (const row of allUsers.rows) {
-      addOrMergeAlert(triggeredAlerts, row.telegram_chat_id, {
+    const chatIds = await getAllChatIds();
+    for (const chatId of chatIds) {
+      addOrMergeAlert(triggeredAlerts, chatId, {
         type: "global",
         reason: `M${mag} exceeds global threshold (≥${GLOBAL_MAG_THRESHOLD})`,
       });
     }
   }
 
-  // ── Rule 2: Proximity ─────────────────────────────────────
+  // Rule 2: Proximity
   if (mag >= PROXIMITY_MAG_THRESHOLD && longitude != null && latitude != null) {
     const nearbyLocations = await findNearbyLocations(longitude, latitude);
     for (const loc of nearbyLocations) {
-      addOrMergeAlert(triggeredAlerts, loc.telegram_chat_id, {
+      addOrMergeAlert(triggeredAlerts, loc.telegramChatId, {
         type: "proximity",
-        reason: `M${mag} is ${Math.round(loc.distance_km)}km from "${loc.label}"`,
+        reason: `M${mag} is ${Math.round(loc.distanceKm)}km from "${loc.label}"`,
         locationLabel: loc.label,
-        distanceKm: Math.round(loc.distance_km),
+        distanceKm: Math.round(loc.distanceKm),
       });
     }
   }
 
-  // ── Rule 3: Tsunami ───────────────────────────────────────
+  // Rule 3: Tsunami
   if (tsunami === 1) {
-    const allUsers = await query("SELECT DISTINCT telegram_chat_id FROM user_locations");
-    for (const row of allUsers.rows) {
-      addOrMergeAlert(triggeredAlerts, row.telegram_chat_id, {
+    const chatIds = await getAllChatIds();
+    for (const chatId of chatIds) {
+      addOrMergeAlert(triggeredAlerts, chatId, {
         type: "tsunami",
         reason: "⚠️ Tsunami warning issued",
       });
     }
   }
 
-  // ── Produce merged alerts ─────────────────────────────────
+  // Produce merged alerts
   for (const alert of triggeredAlerts) {
-    // Dedup check: skip if already alerted for this event+user
     const duplicate = await isDuplicateAlert(id, alert.chatId);
     if (duplicate) {
       log.debug({ eventId: id, chatId: alert.chatId }, "duplicate alert skipped");
@@ -106,7 +96,7 @@ async function evaluateEvent(event, producer, isRevision) {
     const severity = determineSeverity(mag, tsunami, sig);
     const alertPayload = {
       eventId: id,
-      chatId: alert.chatId,
+      chatId: String(alert.chatId),
       rules: alert.rules,
       severity,
       isRevision,
@@ -116,41 +106,26 @@ async function evaluateEvent(event, producer, isRevision) {
 
     await producer.send({
       topic: TOPICS.ALERTS,
-      messages: [
-        {
-          key: String(alert.chatId), // partition by user
-          value: JSON.stringify(alertPayload),
-        },
-      ],
+      messages: [{ key: String(alert.chatId), value: JSON.stringify(alertPayload) }],
     });
 
     log.info(
-      { eventId: id, chatId: alert.chatId, rules: alert.rules.map((r) => r.type), severity },
+      { eventId: id, chatId: String(alert.chatId), rules: alert.rules.map((r) => r.type), severity },
       "alert produced"
     );
   }
 }
 
-/**
- * Evaluate a revision — re-check alert rules if critical fields changed.
- */
 async function evaluateRevision(payload, producer) {
   const { eventId, revisions } = payload;
 
-  // Only re-evaluate if safety-critical fields changed
   const criticalFields = ["mag", "alert", "tsunami", "mmi"];
   const hasCriticalChange = revisions.some((r) => criticalFields.includes(r.field));
-
   if (!hasCriticalChange) return;
 
-  // Fetch the updated event from DB
-  const result = await query(
-    "SELECT *, ST_X(geog::geometry) AS longitude, ST_Y(geog::geometry) AS latitude FROM earthquakes WHERE id = $1",
-    [eventId]
-  );
-  if (result.rows.length === 0) return;
+  const event = await getEventForReeval(eventId);
+  if (!event) return;
 
-  const event = result.rows[0];
   const mapped = {
     id: event.id,
     mag: parseFloat(event.mag),
@@ -171,13 +146,8 @@ async function evaluateRevision(payload, producer) {
   await evaluateEvent(mapped, producer, true);
 }
 
-// ── Helpers ─────────────────────────────────────────────────
-
-/**
- * Merge rules for the same chatId into one alert (prevents 2 alerts for same user).
- */
 function addOrMergeAlert(alerts, chatId, rule) {
-  const existing = alerts.find((a) => a.chatId === chatId);
+  const existing = alerts.find((a) => String(a.chatId) === String(chatId));
   if (existing) {
     existing.rules.push(rule);
   } else {

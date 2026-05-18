@@ -9,20 +9,23 @@
     "ingest": "node apps/ingestion/src/index.js",
     "web": "npm run dev --prefix apps/web",
     "backfill": "node apps/ingestion/src/backfill.js",
-    "migrate": "node scripts/migrate.js",
+    "migrate": "npx prisma db push && node scripts/migrate.js",
+    "generate": "npx prisma generate",
+    "studio": "npx prisma studio",
     "dev": "concurrently \"npm run api\" \"npm run ingest\" \"npm run web\"",
     "topics": "node scripts/setup-topics.js"
   },
   "dependencies": {
+    "@prisma/client": "^7.8.0",
     "dotenv": "^16.5.0",
     "express": "^5.1.0",
     "kafkajs": "^2.2.4",
     "node-cron": "^3.0.3",
-    "pg": "^8.16.0",
     "pino": "^9.6.0",
     "pino-pretty": "^13.0.0"
   },
   "devDependencies": {
-    "concurrently": "^9.1.2"
+    "concurrently": "^9.1.2",
+    "prisma": "^7.8.0"
   }
 }

@@ -1,0 +1,137 @@
+generator client {
+  provider        = "prisma-client-js"
+  previewFeatures = ["postgresqlExtensions"]
+}
+
+datasource db {
+  provider   = "postgresql"
+  extensions = [postgis]
+}
+
+// ── Core earthquake event ───────────────────────────────────
+// Maps 1:1 to USGS GeoJSON feature properties + geometry.
+model Earthquake {
+  id        String   @id                          // USGS event id, e.g. "us2025abc"
+
+  // Surfaced fields — product judgment: these matter most
+  mag       Float?                                // magnitude
+  magType   String?  @map("mag_type")             // ml, md, mw, etc.
+  place     String?                               // human-readable location
+  eventTime DateTime @map("event_time")           // when the quake occurred
+  updatedAt DateTime? @map("updated_at")          // last USGS revision timestamp
+  sig       Int?                                  // significance 0-1000
+  mmi       Float?                                // Modified Mercalli Intensity
+  cdi       Float?                                // Community Decimal Intensity
+  alert     String?                               // PAGER: green/yellow/orange/red
+  tsunami   Int      @default(0)                  // 0 or 1
+  felt      Int?                                  // number of felt reports
+  depth     Float?                                // km below surface
+  latitude  Float?                                // extracted from geometry
+  longitude Float?                                // extracted from geometry
+  status    String?                               // 'automatic' or 'reviewed'
+
+  // Stored for audit / dedup / quality — not surfaced on dashboard
+  net       String?                               // network code: us, ak, ci, nc
+  code      String?
+  ids       String?                               // comma-delimited associated ids
+  sources   String?
+  types     String?
+  nst       Int?
+  dmin      Float?
+  rms       Float?
+  gap       Float?
+  eventType String?  @default("earthquake") @map("event_type")
+  url       String?
+  detailUrl String?  @map("detail_url")
+
+  // PostGIS geography — used for spatial queries via $queryRaw
+  geog      Unsupported("geography(Point, 4326)")?
+
+  ingestedAt DateTime @default(now()) @map("ingested_at")
+
+  // Relations
+  revisions EventRevision[]
+  alerts    AlertLog[]
+
+  @@index([eventTime(sort: Desc)])
+  @@index([sig(sort: Desc)])
+  @@index([net])
+  @@map("earthquakes")
+}
+
+// ── Event revisions ─────────────────────────────────────────
+// Tracks field-level diffs when USGS revises an event.
+model EventRevision {
+  id          Int      @id @default(autoincrement())
+  eventId     String   @map("event_id")
+  fieldName   String   @map("field_name")
+  oldValue    String?  @map("old_value")
+  newValue    String?  @map("new_value")
+  revisedAt   DateTime @default(now()) @map("revised_at")
+  alertReeval Boolean  @default(false) @map("alert_reeval")
+
+  earthquake  Earthquake @relation(fields: [eventId], references: [id], onDelete: Cascade)
+
+  @@index([eventId])
+  @@map("event_revisions")
+}
+
+// ── User locations ──────────────────────────────────────────
+// Each row is a monitored location tied to a Telegram chat.
+model UserLocation {
+  id             Int      @id @default(autoincrement())
+  label          String
+  latitude       Float
+  longitude      Float
+  radiusKm       Int      @default(500) @map("radius_km")
+  telegramChatId BigInt   @map("telegram_chat_id")
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  geog           Unsupported("geography(Point, 4326)")?
+
+  @@map("user_locations")
+}
+
+// ── Alert audit log ─────────────────────────────────────────
+model AlertLog {
+  id         Int      @id @default(autoincrement())
+  eventId    String   @map("event_id")
+  chatId     BigInt   @map("chat_id")
+  ruleType   String   @map("rule_type")           // 'global', 'proximity', 'tsunami', 'revision'
+  severity   String                                // 'info', 'warning', 'critical'
+  message    String?
+  sent       Boolean  @default(false)
+  sentAt     DateTime? @map("sent_at")
+  isRevision Boolean  @default(false) @map("is_revision")
+  dedupHash  String?  @unique @map("dedup_hash")
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  earthquake Earthquake @relation(fields: [eventId], references: [id], onDelete: Cascade)
+
+  @@index([eventId])
+  @@index([sent])
+  @@map("alerts_log")
+}
+
+// ── Poll health ─────────────────────────────────────────────
+model PollHealth {
+  id            Int      @id @default(autoincrement())
+  polledAt      DateTime @default(now()) @map("polled_at")
+  status        String                              // 'success', 'error', 'stale'
+  eventsFetched Int      @default(0) @map("events_fetched")
+  newEvents     Int      @default(0) @map("new_events")
+  revisions     Int      @default(0)
+  responseMs    Int?     @map("response_ms")
+  errorMessage  String?  @map("error_message")
+
+  @@map("poll_health")
+}
+
+// ── Checkpoints ─────────────────────────────────────────────
+model Checkpoint {
+  key       String   @id
+  value     String
+  updatedAt DateTime @default(now()) @map("updated_at")
+
+  @@map("checkpoints")
+}
