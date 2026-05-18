@@ -1,0 +1,16 @@
+// ── Event revisions ─────────────────────────────────────────
+// Tracks field-level diffs when USGS revises an event.
+model EventRevision {
+  id          Int      @id @default(autoincrement())
+  eventId     String   @map("event_id")
+  fieldName   String   @map("field_name")
+  oldValue    String?  @map("old_value")
+  newValue    String?  @map("new_value")
+  revisedAt   DateTime @default(now()) @map("revised_at")
+  alertReeval Boolean  @default(false) @map("alert_reeval")
+
+  earthquake Earthquake @relation(fields: [eventId], references: [id], onDelete: Cascade)
+
+  @@index([eventId])
+  @@map("event_revisions")
+}

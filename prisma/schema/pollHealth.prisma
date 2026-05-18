@@ -1,0 +1,13 @@
+// ── Poll health ─────────────────────────────────────────────
+model PollHealth {
+  id            Int      @id @default(autoincrement())
+  polledAt      DateTime @default(now()) @map("polled_at")
+  status        String // 'success', 'error', 'stale'
+  eventsFetched Int      @default(0) @map("events_fetched")
+  newEvents     Int      @default(0) @map("new_events")
+  revisions     Int      @default(0)
+  responseMs    Int?     @map("response_ms")
+  errorMessage  String?  @map("error_message")
+
+  @@map("poll_health")
+}

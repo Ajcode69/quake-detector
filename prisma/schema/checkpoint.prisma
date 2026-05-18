@@ -1,0 +1,8 @@
+// ── Checkpoints ─────────────────────────────────────────────
+model Checkpoint {
+  key       String   @id
+  value     String
+  updatedAt DateTime @default(now()) @map("updated_at")
+
+  @@map("checkpoints")
+}

@@ -1,0 +1,56 @@
+// ── Core earthquake event ───────────────────────────────────
+// Maps 1:1 to USGS GeoJSON feature properties + geometry.
+model Earthquake {
+  id String @id // USGS event id, e.g. "us2025abc"
+
+  // Surfaced fields — product judgment: these matter most
+  mag       Float? // magnitude
+  magType   String?   @map("mag_type") // ml, md, mw, etc.
+  place     String? // human-readable location
+  eventTime DateTime  @map("event_time") // when the quake occurred
+  updatedAt DateTime? @map("updated_at") // last USGS revision timestamp
+  sig       Int? // significance 0-1000
+  mmi       Float? // Modified Mercalli Intensity
+  cdi       Float? // Community Decimal Intensity
+  alert     String? // PAGER: green/yellow/orange/red
+  tsunami   Int       @default(0) // 0 or 1
+  felt      Int? // number of felt reports
+  depth     Float? // km below surface
+  latitude  Float? // extracted from geometry
+  longitude Float? // extracted from geometry
+  status    String? // 'automatic' or 'reviewed'
+
+  // Computed operational risk fields
+  confidenceScore Float?  @map("confidence_score")
+  impactScore     Float?  @map("impact_score")
+  eventClass      String? @map("event_class")
+
+  // Stored for audit / dedup / quality — not surfaced on dashboard
+  net       String? // network code: us, ak, ci, nc
+  code      String?
+  ids       String? // comma-delimited associated ids
+  sources   String?
+  types     String?
+  nst       Int?
+  dmin      Float?
+  rms       Float?
+  gap       Float?
+  eventType String? @default("earthquake") @map("event_type")
+  url       String?
+  detailUrl String? @map("detail_url")
+
+  // PostGIS geography — used for spatial queries via $queryRaw
+  geog Unsupported("geography(Point, 4326)")?
+
+  ingestedAt   DateTime @default(now()) @map("ingested_at")
+  kafkaPending Boolean  @default(false) @map("kafka_pending")
+
+  // Relations
+  revisions EventRevision[]
+  alerts    AlertLog[]
+
+  @@index([eventTime(sort: Desc)])
+  @@index([sig(sort: Desc)])
+  @@index([net])
+  @@map("earthquakes")
+}

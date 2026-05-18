@@ -1,0 +1,18 @@
+// ── User locations ──────────────────────────────────────────
+// Each row is a monitored location tied to a Telegram chat.
+model UserLocation {
+  id             Int      @id @default(autoincrement())
+  label          String
+  latitude       Float
+  longitude      Float
+  radiusKm       Int      @default(500) @map("radius_km")
+  telegramChatId BigInt   @map("telegram_chat_id")
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  geog Unsupported("geography(Point, 4326)")?
+
+  alertRules UserAlertRule[]
+  riskScores LocationRiskScore[]
+
+  @@map("user_locations")
+}

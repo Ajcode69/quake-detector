@@ -6,6 +6,7 @@
 import prisma from "../../../../shared/db/client.js";
 import { createLogger } from "../../../../shared/logger.js";
 import { Prisma } from "@prisma/client";
+import { calculateAllScores } from "../utils/scoring.js";
 
 const log = createLogger("service:earthquake");
 
@@ -22,6 +23,8 @@ const WATCH_FIELDS = ["mag", "alert", "mmi", "sig", "tsunami"];
 export async function upsertEarthquake(feature) {
   const p = feature.properties;
   const [lon, lat, depth] = feature.geometry.coordinates;
+
+  const { confidenceScore, impactScore, eventClass } = calculateAllScores(p, depth);
 
   const existing = await prisma.earthquake.findUnique({
     where: { id: feature.id },
@@ -47,6 +50,9 @@ export async function upsertEarthquake(feature) {
         latitude: lat,
         longitude: lon,
         status: p.status,
+        confidenceScore,
+        impactScore,
+        eventClass,
         net: p.net,
         code: p.code,
         ids: p.ids,
@@ -74,7 +80,7 @@ export async function upsertEarthquake(feature) {
     return {
       isNew: true,
       revisions: [],
-      event: { id: feature.id, ...p, longitude: lon, latitude: lat, depth },
+      event: { id: feature.id, ...p, longitude: lon, latitude: lat, depth, confidenceScore, impactScore, eventClass },
     };
   }
 
@@ -83,6 +89,16 @@ export async function upsertEarthquake(feature) {
   for (const field of WATCH_FIELDS) {
     const oldVal = existing[field];
     const newVal = p[field];
+    if (newVal != null && String(oldVal) !== String(newVal)) {
+      revisions.push({ field, old: oldVal, new: newVal });
+    }
+  }
+
+  const COMPUTED_WATCH = ["impactScore", "eventClass"];
+  const computedNew = { impactScore, eventClass };
+  for (const field of COMPUTED_WATCH) {
+    const oldVal = existing[field];
+    const newVal = computedNew[field];
     if (newVal != null && String(oldVal) !== String(newVal)) {
       revisions.push({ field, old: oldVal, new: newVal });
     }
@@ -106,6 +122,9 @@ export async function upsertEarthquake(feature) {
       latitude: lat,
       longitude: lon,
       status: p.status,
+      confidenceScore,
+      impactScore,
+      eventClass,
       nst: p.nst,
       dmin: p.dmin,
       rms: p.rms,
@@ -140,6 +159,6 @@ export async function upsertEarthquake(feature) {
   return {
     isNew: false,
     revisions,
-    event: { id: feature.id, ...p, longitude: lon, latitude: lat, depth },
+    event: { id: feature.id, ...p, longitude: lon, latitude: lat, depth, confidenceScore, impactScore, eventClass },
   };
 }

@@ -117,6 +117,19 @@ Swarm = 5+ events within 50km radius in the last 6 hours
 | Swarm dedup | `sha256("swarm:{clusterCenter}:{chatId}:{windowBucket}")` — prevents re-alerting same cluster every event |
 | Revision detection | Compares `mag, alert, mmi, sig, tsunami` — only produces to Kafka if these safety-critical fields changed |
 
+### Computed Risk Scores (Upfront Calculation)
+
+The USGS provides granular scientific data, but downstream alerting requires operational clarity. We synthesize raw fields into three computed scores:
+
+1. **`confidence_score` (0-100):** Data quality metric based on `status`, `nst`, `rms`, `gap`, and `dmin`. "How much do we trust this record?"
+2. **`impact_score` (0-100):** Operational severity based on `tsunami`, `alert`, `mag`, `depth`, `felt`, `cdi`, `mmi`, and `sig`. "How much attention does this need?"
+3. **`event_class` (Enum):** Operational bucket (e.g., `tsunami_risk`, `major_quake`, `routine_quake`). "What is the response protocol?"
+
+**Why calculate upfront during ingestion?**
+Instead of calculating these scores on-the-fly when queried, we calculate them synchronously during the 60-second polling cycle and persist them in Postgres. 
+- **Zero Read Latency:** Downstream consumers (dashboard, alerting workers) receive pre-calculated, ready-to-use scores.
+- **State Escalation Alerts:** By adding `impactScore` and `eventClass` to the ingestion revision watcher, if a USGS update causes a quake to escalate from `routine_quake` to `strong_shaking`, the ingestion worker instantly detects the diff and pushes a revision event to Kafka for alerting.
+
 ### Failure Handling
 
 | Failure | Response |

@@ -1,0 +1,20 @@
+// ── Alert audit log ─────────────────────────────────────────
+model AlertLog {
+  id         Int       @id @default(autoincrement())
+  eventId    String    @map("event_id")
+  chatId     BigInt    @map("chat_id")
+  ruleType   String    @map("rule_type") // 'global', 'proximity', 'tsunami', 'revision'
+  severity   String // 'info', 'warning', 'critical'
+  message    String?
+  sent       Boolean   @default(false)
+  sentAt     DateTime? @map("sent_at")
+  isRevision Boolean   @default(false) @map("is_revision")
+  dedupHash  String?   @unique @map("dedup_hash")
+  createdAt  DateTime  @default(now()) @map("created_at")
+
+  earthquake Earthquake @relation(fields: [eventId], references: [id], onDelete: Cascade)
+
+  @@index([eventId])
+  @@index([sent])
+  @@map("alerts_log")
+}

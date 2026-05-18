@@ -4,9 +4,7 @@
 
 import prisma from "../../../../shared/db/client.js";
 
-/**
- * Create a new monitored location.
- */
+
 export async function createLocation({ label, latitude, longitude, radiusKm = 500, telegramChatId }) {
   const location = await prisma.userLocation.create({
     data: {
