@@ -1,0 +1,38 @@
+# ── Local dev: Redpanda (Kafka-compatible) ───────────────────
+# Supabase is a hosted service — no local container needed.
+# Just set DATABASE_URL in .env to your Supabase connection string.
+
+services:
+  redpanda:
+    image: redpandadata/redpanda:latest
+    container_name: quake-redpanda
+    command:
+      - redpanda
+      - start
+      - --mode dev-container
+      - --smp 1
+      - --memory 512M
+      - --overprovisioned
+      - --kafka-addr internal://0.0.0.0:9092,external://0.0.0.0:19092
+      - --advertise-kafka-addr internal://redpanda:9092,external://localhost:19092
+    ports:
+      - "19092:19092"   # Kafka API (external)
+      - "8081:8081"     # Schema Registry
+      - "8082:8082"     # HTTP Proxy
+      - "9644:9644"     # Admin API
+    volumes:
+      - redpanda-data:/var/lib/redpanda/data
+
+  # Redpanda Console — web UI for inspecting topics/messages
+  console:
+    image: redpandadata/console:latest
+    container_name: quake-console
+    ports:
+      - "8080:8080"
+    environment:
+      - KAFKA_BROKERS=redpanda:9092
+    depends_on:
+      - redpanda
+
+volumes:
+  redpanda-data:
