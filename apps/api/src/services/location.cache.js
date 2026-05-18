@@ -11,11 +11,12 @@
 
 import prisma from "../../../../shared/db/client.js";
 import { createLogger } from "../../../../shared/logger.js";
+import RBush from "rbush";
 
 const log = createLogger("cache:locations");
 
-let cachedLocations = [];    // { id, label, lat, lon, radiusKm, telegramChatId }
-let allChatIds = [];          // distinct chat IDs
+let tree = new RBush(); // Spatial index
+let allChatIds = [];    // distinct chat IDs
 let lastRefresh = 0;
 const REFRESH_INTERVAL_MS = 60_000;
 let refreshTimer = null;
@@ -53,20 +54,36 @@ async function refresh() {
       },
     });
 
-    cachedLocations = rows.map((r) => ({
-      id: r.id,
-      label: r.label,
-      lat: r.latitude,
-      lon: r.longitude,
-      radiusKm: r.radiusKm,
-      telegramChatId: r.telegramChatId,
-    }));
+    // Rebuild spatial tree
+    const newTree = new RBush();
+    const items = rows.map((r) => {
+      // 1 degree latitude is ~111km. Longitude varies by cos(lat)
+      const latDelta = r.radiusKm / 111;
+      const lonDelta = r.radiusKm / (111 * Math.cos(toRad(r.latitude)));
+
+      return {
+        minX: r.longitude - lonDelta,
+        minY: r.latitude - latDelta,
+        maxX: r.longitude + lonDelta,
+        maxY: r.latitude + latDelta,
+        loc: {
+          id: r.id,
+          label: r.label,
+          lat: r.latitude,
+          lon: r.longitude,
+          radiusKm: r.radiusKm,
+          telegramChatId: r.telegramChatId,
+        }
+      };
+    });
+    newTree.load(items);
+    tree = newTree;
 
     const chatIdSet = new Set(rows.map((r) => r.telegramChatId));
     allChatIds = [...chatIdSet];
 
     lastRefresh = Date.now();
-    log.debug({ locationCount: cachedLocations.length, chatIds: allChatIds.length }, "location cache refreshed");
+    log.debug({ locationCount: items.length, chatIds: allChatIds.length }, "location cache refreshed");
   } catch (err) {
     log.error({ err }, "location cache refresh failed — using stale data");
     // Keep using stale cache — better than no cache
@@ -79,7 +96,7 @@ async function refresh() {
 export async function startLocationCache() {
   await refresh(); // initial load
   refreshTimer = setInterval(refresh, REFRESH_INTERVAL_MS);
-  log.info({ locations: cachedLocations.length }, "location cache started");
+  log.info("location cache started with rbush spatial index");
 }
 
 /**
@@ -93,10 +110,38 @@ export function stopLocationCache() {
  * Find cached locations within range of an event.
  * Uses haversine (no DB call). Returns results compatible with PostGIS query shape.
  */
-export function findNearbyLocationsCached(eventLon, eventLat) {
+export async function findNearbyLocationsCached(eventLon, eventLat) {
   const results = [];
 
-  for (const loc of cachedLocations) {
+  // Fallback to Postgres if cache is empty or older than 2 minutes
+  if (lastRefresh === 0 || Date.now() - lastRefresh > 120_000) {
+    log.warn("Location cache empty or stale — falling back to Postgres spatial query");
+    try {
+      const rows = await prisma.$queryRaw`
+        SELECT 
+          id, label, latitude, longitude, radius_km AS "radiusKm", telegram_chat_id AS "telegramChatId",
+          ST_Distance(geog, ST_SetSRID(ST_MakePoint(${eventLon}, ${eventLat}), 4326)::geography) / 1000.0 AS distance_km
+        FROM user_locations
+        WHERE ST_DWithin(geog, ST_SetSRID(ST_MakePoint(${eventLon}, ${eventLat}), 4326)::geography, radius_km * 1000)
+      `;
+      return rows.map(r => ({ ...r, distanceKm: Math.round(r.distance_km) }));
+    } catch (err) {
+      log.error({ err }, "Postgres fallback failed");
+      return [];
+    }
+  }
+
+  // Fast path: Spatial tree lookup
+  const candidates = tree.search({
+    minX: eventLon,
+    minY: eventLat,
+    maxX: eventLon,
+    maxY: eventLat,
+  });
+
+  // Exact haversine filter (since tree uses bounding box squares)
+  for (const item of candidates) {
+    const loc = item.loc;
     const distKm = haversineKm(eventLat, eventLon, loc.lat, loc.lon);
     if (distKm <= loc.radiusKm) {
       results.push({

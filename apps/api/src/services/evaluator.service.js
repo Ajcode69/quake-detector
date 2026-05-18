@@ -1,13 +1,3 @@
-/**
- * Consumer: alert-evaluator
- * Reads earthquake.raw + earthquake.revisions → evaluates alert rules → produces to earthquake.alerts.
- *
- * Alert tiers:
- *   Tier 1 (General):   mag >= 5.0 anywhere, tsunami, source silence
- *   Tier 2 (Location):  proximity within user's radius_km, respects custom rules
- *   Tier 3 (Swarm):     5+ events within 50km in 6 hours near user locations
- */
-
 import { createLogger } from "../../../../shared/logger.js";
 import { getEventForReeval } from "../services/earthquake.service.js";
 import { findNearbyLocationsCached, getAllChatIdsCached } from "../services/location.cache.js";
@@ -40,7 +30,7 @@ export async function handleSystemAlert(payload) {
       _systemAlert: true,
       timestamp: Date.now(),
     };
-    
+
     const saved = await saveAlert({
       eventId: alertData.eventId,
       chatId: alertData.chatId,
@@ -50,7 +40,7 @@ export async function handleSystemAlert(payload) {
       isRevision: false,
       dedupHash: `sys-${payload.consecutiveFailures}-${chatId}`
     });
-    
+
     if (saved) {
       await prisma.$executeRawUnsafe(`NOTIFY earthquake_alerts, '{"id": ${saved.id}}'`);
     }
@@ -93,7 +83,7 @@ export async function evaluateEvent(event, isRevision) {
   // ── Tier 2: Location-based alerts (per-user) ─────────────
 
   if (mag >= 1.0 && longitude != null && latitude != null) {
-    const nearbyLocations = findNearbyLocationsCached(longitude, latitude);
+    const nearbyLocations = await findNearbyLocationsCached(longitude, latitude);
 
     for (const loc of nearbyLocations) {
       // Load custom rules for this user+location
@@ -121,21 +111,26 @@ export async function evaluateEvent(event, isRevision) {
   // ── Tier 3: Swarm detection ───────────────────────────────
 
   if (mag >= 1.5 && longitude != null && latitude != null) {
-    const swarm = await detectSwarm(longitude, latitude, id);
+    // OPTIMIZATION: In-memory filter.
+    // Before hitting the database for a complex spatial query, check our in-memory cache 
+    // to see if any user is even tracking this location. This filters out 99% of global earthquakes instantly.
+    const nearbyLocations = await findNearbyLocationsCached(longitude, latitude);
 
-    if (swarm) {
-      const nearbyLocations = findNearbyLocationsCached(longitude, latitude);
+    if (nearbyLocations.length > 0) {
+      const swarm = await detectSwarm(longitude, latitude, id);
 
-      for (const loc of nearbyLocations) {
-        // Check swarm-specific dedup (cluster-center + time window)
-        const isDup = await isSwarmDuplicate(longitude, latitude, loc.telegramChatId, SWARM_WINDOW_HOURS);
-        if (isDup) continue;
+      if (swarm) {
+        for (const loc of nearbyLocations) {
+          // Check swarm-specific dedup (cluster-center + time window)
+          const isDup = await isSwarmDuplicate(longitude, latitude, loc.telegramChatId, SWARM_WINDOW_HOURS);
+          if (isDup) continue;
 
-        addOrMergeAlert(triggeredAlerts, loc.telegramChatId, {
-          type: "swarm",
-          reason: `🔄 ${swarm.count} earthquakes within ${SWARM_RADIUS_KM}km in last ${SWARM_WINDOW_HOURS}h (max M${swarm.maxMag})`,
-          swarmData: swarm,
-        });
+          addOrMergeAlert(triggeredAlerts, loc.telegramChatId, {
+            type: "swarm",
+            reason: `🔄 ${swarm.count} earthquakes within ${SWARM_RADIUS_KM}km in last ${SWARM_WINDOW_HOURS}h (max M${swarm.maxMag})`,
+            swarmData: swarm,
+          });
+        }
       }
     }
   }
