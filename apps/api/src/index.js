@@ -13,7 +13,8 @@ import { disconnect } from "../../../shared/db/client.js";
 import { createKafkaClient } from "../../../shared/kafka/client.js";
 import { startPersister } from "./consumers/persister.js";
 import { startEvaluator } from "./consumers/evaluator.js";
-import { startNotifier } from "./consumers/notifier.js";
+import { startNotifier, sendTelegram } from "./consumers/notifier.js";
+import { getUnsentAlerts, markAlertSent } from "./services/alert.service.js";
 import eventsRouter from "./routes/events.js";
 import healthRouter from "./routes/health.js";
 import locationsRouter from "./routes/locations.js";
@@ -80,10 +81,34 @@ function scheduleDailyDigest() {
   log.info("daily digest cron scheduled (08:00 UTC)");
 }
 
+// ── Unsent alert retry sweep ────────────────────────────────
+function scheduleAlertRetrySweep() {
+  cron.schedule("*/5 * * * *", async () => {
+    try {
+      const unsent = await getUnsentAlerts(20);
+      if (unsent.length === 0) return;
+
+      log.info({ count: unsent.length }, "retrying unsent alerts");
+
+      for (const alert of unsent) {
+        const sent = await sendTelegram(String(alert.chatId), alert.message);
+        if (sent) {
+          await markAlertSent(alert.id);
+          log.info({ alertId: alert.id }, "retry delivered");
+        }
+      }
+    } catch (err) {
+      log.error({ err }, "alert retry sweep failed");
+    }
+  });
+  log.info("alert retry sweep scheduled (every 5 min)");
+}
+
 // ── Main ────────────────────────────────────────────────────
 async function main() {
   const consumers = await startConsumers();
   scheduleDailyDigest();
+  scheduleAlertRetrySweep();
 
   app.listen(config.port, () => {
     log.info({ port: config.port }, "API server listening");

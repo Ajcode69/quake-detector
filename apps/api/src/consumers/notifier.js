@@ -1,7 +1,7 @@
 /**
  * Consumer: telegram-notifier
- * Reads earthquake.alerts → sends Telegram messages → marks as sent.
- * Rate limiting + exponential backoff retry.
+ * Reads earthquake.alerts → formats message → sends via Telegram → marks sent.
+ * Handles: normal alerts, revision alerts, swarm alerts, system alerts.
  */
 
 import { createLogger } from "../../../../shared/logger.js";
@@ -33,20 +33,51 @@ export async function startNotifier(consumer) {
 }
 
 async function processAlert(alert) {
-  const { eventId, chatId, rules, severity, isRevision, event } = alert;
+  const { eventId, chatId, rules, severity, isRevision, event, dedupHash } = alert;
   const message = formatAlertMessage(alert);
 
-  await saveAlert({ eventId, chatId, ruleType: rules.map((r) => r.type).join(","), severity, message, isRevision });
+  const saved = await saveAlert({
+    eventId,
+    chatId,
+    ruleType: rules.map((r) => r.type).join(","),
+    severity,
+    message,
+    isRevision,
+    dedupHash,
+  });
+
+  // If saveAlert returned null, it was a dedup conflict — skip send
+  if (!saved) {
+    log.debug({ eventId, chatId }, "alert dedup at notifier — skipping send");
+    return;
+  }
 
   const sent = await sendTelegram(chatId, message);
   if (sent) {
+    await markAlertSent(saved.id);
     log.info({ eventId, chatId, severity }, "alert delivered");
   } else {
-    log.warn({ eventId, chatId }, "alert saved but delivery failed — will retry");
+    log.warn({ eventId, chatId, alertId: saved.id }, "alert saved but delivery failed — retry sweep will pick it up");
   }
 }
 
+// ── Message formatting ──────────────────────────────────────
+
 function formatAlertMessage(alert) {
+  const { rules, _systemAlert } = alert;
+
+  // System alerts (source silence)
+  if (_systemAlert) return formatSystemAlert(alert);
+
+  // Swarm alerts
+  const swarmRule = rules.find((r) => r.type === "swarm");
+  if (swarmRule) return formatSwarmAlert(alert, swarmRule);
+
+  // Normal earthquake alerts
+  return formatEarthquakeAlert(alert);
+}
+
+function formatEarthquakeAlert(alert) {
   const { eventId, rules, severity, isRevision, event } = alert;
   const { mag, place, sig, tsunami, depth, alert: pagerLevel } = event;
 
@@ -68,7 +99,34 @@ function formatAlertMessage(alert) {
   return `${header}\n\n${details}\n*Triggered rules:*\n${rulesText}\n\n[View on USGS](${link})`;
 }
 
-async function sendTelegram(chatId, text, retries = 3) {
+function formatSwarmAlert(alert, swarmRule) {
+  const { event } = alert;
+  const s = swarmRule.swarmData;
+
+  let msg = `🟡 *SWARM ALERT*\n\n`;
+  msg += `🔄 *${s.count} earthquakes* detected within ${s.radiusKm}km in the last ${s.windowHours} hours\n\n`;
+  msg += `📍 Near: *${event.place || "Unknown"}*\n`;
+  msg += `📊 Largest: *M${s.maxMag}* | Average: M${s.avgMag}\n`;
+
+  // Include proximity info from other rules
+  const proxRule = alert.rules.find((r) => r.type === "proximity");
+  if (proxRule) {
+    msg += `📏 ${proxRule.distanceKm}km from "${proxRule.locationLabel}"\n`;
+  }
+
+  msg += `\n_This may indicate elevated seismic activity in the region. Individual events are small, but the pattern is noteworthy._`;
+
+  return msg;
+}
+
+function formatSystemAlert(alert) {
+  const rule = alert.rules[0];
+  return `⚠️ *SYSTEM ALERT*\n\n${rule.reason}\n\n_The earthquake data source may be temporarily unavailable. Monitoring continues automatically._`;
+}
+
+// ── Telegram delivery ───────────────────────────────────────
+
+export async function sendTelegram(chatId, text, retries = 3) {
   for (let attempt = 1; attempt <= retries; attempt++) {
     try {
       const response = await fetch(`${TELEGRAM_API}/sendMessage`, {

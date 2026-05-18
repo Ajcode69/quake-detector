@@ -1,10 +1,11 @@
 /**
- * USGS Poller — fetches the hourly GeoJSON feed, upserts to Postgres,
- * produces to Kafka. Handles staleness detection and health recording.
+ * USGS Poller — fetches the GeoJSON feed, upserts to Postgres,
+ * produces to Kafka. Handles staleness, backoff, source silence alerts.
  */
 
 import { config } from "../../../shared/config.js";
 import { createLogger } from "../../../shared/logger.js";
+import prisma from "../../../shared/db/client.js";
 import { upsertEarthquake } from "./services/earthquake.service.js";
 import { recordPollHealth } from "./services/health.service.js";
 import { produceRawEvent, produceRevisions } from "./producer.js";
@@ -13,10 +14,25 @@ const log = createLogger("poller");
 
 let lastGenerated = 0;
 let consecutiveFailures = 0;
+let lastSuccessAt = Date.now();
 const MAX_FAILURES_BEFORE_ALERT = 5;
+let sourceSilenceAlerted = false; // prevent re-alerting every poll
 
 /**
- * Single poll cycle — fetch → parse → upsert → produce.
+ * Get the next poll interval with exponential backoff on failures.
+ * Normal: config.pollIntervalSec * 1000
+ * Failing: min(interval * 2^failures, 10 minutes)
+ */
+export function getBackoffMs() {
+  if (consecutiveFailures === 0) return config.pollIntervalSec * 1000;
+  return Math.min(
+    config.pollIntervalSec * 1000 * Math.pow(2, consecutiveFailures),
+    600_000 // cap at 10 minutes
+  );
+}
+
+/**
+ * Single poll cycle — fetch → parse → upsert → produce → health.
  */
 export async function pollOnce() {
   const start = Date.now();
@@ -24,6 +40,7 @@ export async function pollOnce() {
   let eventsFetched = 0;
   let newEvents = 0;
   let revisionCount = 0;
+  let kafkaFailures = 0;
   let errorMessage = null;
 
   try {
@@ -55,13 +72,32 @@ export async function pollOnce() {
 
         if (result.isNew) {
           newEvents++;
-          await produceRawEvent(result.event);
+          try {
+            await produceRawEvent(result.event);
+          } catch (kafkaErr) {
+            kafkaFailures++;
+            log.error({ kafkaErr, eventId: feature.id }, "Kafka produce failed — marking for retry");
+            // Mark in DB for Kafka sweep to pick up later
+            await prisma.earthquake.update({
+              where: { id: feature.id },
+              data: { kafkaPending: true },
+            }).catch(() => {}); // best-effort
+          }
         }
 
         if (result.revisions.length > 0) {
           revisionCount += result.revisions.length;
-          await produceRawEvent(result.event);
-          await produceRevisions(feature.id, result.revisions);
+          try {
+            await produceRawEvent(result.event);
+            await produceRevisions(feature.id, result.revisions);
+          } catch (kafkaErr) {
+            kafkaFailures++;
+            log.error({ kafkaErr, eventId: feature.id }, "Kafka revision produce failed");
+            await prisma.earthquake.update({
+              where: { id: feature.id },
+              data: { kafkaPending: true },
+            }).catch(() => {});
+          }
         }
       } catch (err) {
         log.error({ err, eventId: feature.id }, "failed to process event");
@@ -69,16 +105,37 @@ export async function pollOnce() {
     }
 
     consecutiveFailures = 0;
-    log.info({ eventsFetched, newEvents, revisions: revisionCount, ms: Date.now() - start }, "poll cycle complete");
+    lastSuccessAt = Date.now();
+    sourceSilenceAlerted = false;
+
+    if (kafkaFailures > 0) {
+      log.warn({ kafkaFailures, total: eventsFetched }, "some events failed Kafka produce — marked as kafkaPending");
+    }
+
+    log.info({ eventsFetched, newEvents, revisions: revisionCount, kafkaFailures, ms: Date.now() - start }, "poll cycle complete");
   } catch (err) {
     status = "error";
     errorMessage = err.message;
     consecutiveFailures++;
 
-    log.error({ err, consecutiveFailures }, "poll cycle failed");
+    log.error({ err, consecutiveFailures, backoffMs: getBackoffMs() }, "poll cycle failed");
 
-    if (consecutiveFailures >= MAX_FAILURES_BEFORE_ALERT) {
-      log.fatal({ consecutiveFailures }, "SOURCE SILENCE — USGS unreachable");
+    // Source silence detection — alert all users via Kafka
+    if (consecutiveFailures >= MAX_FAILURES_BEFORE_ALERT && !sourceSilenceAlerted) {
+      sourceSilenceAlerted = true;
+      try {
+        await produceRawEvent({
+          id: `system:source_silence:${Date.now()}`,
+          _systemAlert: true,
+          alertType: "source_silence",
+          consecutiveFailures,
+          lastSuccessAt,
+          place: "System — USGS Source Silence",
+        });
+        log.fatal({ consecutiveFailures }, "SOURCE SILENCE alert produced");
+      } catch (alertErr) {
+        log.error({ alertErr }, "failed to produce source silence alert");
+      }
     }
   }
 
