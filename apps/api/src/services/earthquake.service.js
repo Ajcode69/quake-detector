@@ -9,20 +9,27 @@ import prisma from "../../../../shared/db/client.js";
  * Get paginated events with optional filters.
  * @param {{ limit?, offset?, minMag?, since?, locationIds? }} opts
  */
-export async function getEvents({ limit = 50, offset = 0, minMag, since, locationIds } = {}) {
+export async function getEvents({ limit = 50, offset = 0, minMag, since, locationIds, alertLevel, region, orderBy } = {}) {
   // If locationIds provided, use spatial query to get events near those locations
   if (locationIds && locationIds.length > 0) {
-    return getEventsNearLocations({ locationIds, limit, offset, minMag, since });
+    return getEventsNearLocations({ locationIds, limit, offset, minMag, since, alertLevel, region, orderBy });
   }
 
   // Standard query — no spatial filter
   const where = {};
   if (minMag != null) where.mag = { gte: parseFloat(minMag) };
   if (since) where.eventTime = { gte: new Date(since) };
+  if (alertLevel) where.alert = alertLevel;
+  if (region) where.place = { contains: region, mode: "insensitive" };
+
+  let orderByObj = { eventTime: "desc" };
+  if (orderBy === "mag") orderByObj = { mag: "desc" };
+  else if (orderBy === "sig") orderByObj = { sig: "desc" };
+  else if (orderBy === "depth") orderByObj = { depth: "desc" };
 
   return prisma.earthquake.findMany({
     where,
-    orderBy: { eventTime: "desc" },
+    orderBy: orderByObj,
     take: Math.min(limit, 200),
     skip: offset,
     select: {
@@ -38,26 +45,40 @@ export async function getEvents({ limit = 50, offset = 0, minMag, since, locatio
  * Get events near a set of user locations using PostGIS.
  * Returns events within any of the given locations' radii.
  */
-async function getEventsNearLocations({ locationIds, limit = 50, offset = 0, minMag, since }) {
+async function getEventsNearLocations({ locationIds, limit = 50, offset = 0, minMag, since, alertLevel, region, orderBy }) {
   // Build dynamic conditions
   const magCondition = minMag != null ? `AND e.mag >= ${parseFloat(minMag)}` : "";
   const sinceCondition = since ? `AND e.event_time >= '${new Date(since).toISOString()}'` : "";
+  const alertCondition = alertLevel ? `AND e.alert = '${alertLevel}'` : "";
+  const regionCondition = region ? `AND e.place ILIKE '%${region}%'` : "";
+
+  let orderClause = `ORDER BY "distanceKm" ASC`;
+  if (orderBy === "eventTime") orderClause = `ORDER BY "eventTime" DESC`;
+  else if (orderBy === "mag") orderClause = `ORDER BY mag DESC`;
+  else if (orderBy === "sig") orderClause = `ORDER BY sig DESC`;
+  else if (orderBy === "depth") orderClause = `ORDER BY depth DESC`;
 
   const events = await prisma.$queryRawUnsafe(`
-    SELECT DISTINCT ON (e.id)
-      e.id, e.mag, e.mag_type AS "magType", e.place, e.event_time AS "eventTime",
-      e.sig, e.mmi, e.alert, e.tsunami, e.felt, e.depth,
-      e.latitude, e.longitude, e.status, e.net, e.url,
-      e.ingested_at AS "ingestedAt",
-      MIN(ST_Distance(e.geog, l.geog) / 1000.0) AS "distanceKm",
-      l.label AS "nearestLocation"
-    FROM earthquakes e
-    JOIN user_locations l ON l.id = ANY($1::int[])
-    WHERE ST_DWithin(e.geog, l.geog, l.radius_km * 1000)
-      ${magCondition}
-      ${sinceCondition}
-    GROUP BY e.id, l.label
-    ORDER BY e.id, "distanceKm" ASC
+    WITH filtered AS (
+      SELECT DISTINCT ON (e.id)
+        e.id, e.mag, e.mag_type AS "magType", e.place, e.event_time AS "eventTime",
+        e.sig, e.mmi, e.alert, e.tsunami, e.felt, e.depth,
+        e.latitude, e.longitude, e.status, e.net, e.url,
+        e.ingested_at AS "ingestedAt",
+        MIN(ST_Distance(e.geog, l.geog) / 1000.0) AS "distanceKm",
+        l.label AS "nearestLocation"
+      FROM earthquakes e
+      JOIN user_locations l ON l.id = ANY($1::int[])
+      WHERE ST_DWithin(e.geog, l.geog, l.radius_km * 1000)
+        ${magCondition}
+        ${sinceCondition}
+        ${alertCondition}
+        ${regionCondition}
+      GROUP BY e.id, l.label
+      ORDER BY e.id, "distanceKm" ASC
+    )
+    SELECT * FROM filtered
+    ${orderClause}
     LIMIT $2 OFFSET $3
   `, locationIds, limit, offset);
 

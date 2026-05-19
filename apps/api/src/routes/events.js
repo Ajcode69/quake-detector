@@ -7,18 +7,30 @@ const router = Router();
 
 router.get("/", async (req, res) => {
   try {
-    const { limit = 50, offset = 0, minMag, since, locations } = req.query;
+    const { limit = 50, offset = 0, minMag, since, locations, timeWindow, alertLevel, region, orderBy } = req.query;
 
     const locationIds = locations
       ? locations.split(",").map(Number).filter(Boolean)
       : undefined;
 
+    let computedSince = since;
+    if (!computedSince && timeWindow) {
+      const now = Date.now();
+      if (timeWindow === "1h") computedSince = new Date(now - 3600_000).toISOString();
+      else if (timeWindow === "24h") computedSince = new Date(now - 86400_000).toISOString();
+      else if (timeWindow === "7d") computedSince = new Date(now - 7 * 86400_000).toISOString();
+      else if (timeWindow === "30d") computedSince = new Date(now - 30 * 86400_000).toISOString();
+    }
+
     const events = await getEvents({
       limit: Math.min(parseInt(limit), 200),
       offset: parseInt(offset),
       minMag: minMag ? parseFloat(minMag) : undefined,
-      since: since || undefined,
+      since: computedSince || undefined,
       locationIds,
+      alertLevel,
+      region,
+      orderBy,
     });
 
     res.json({ data: events, count: events.length });

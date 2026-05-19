@@ -12,7 +12,7 @@
  */
 
 import { Router } from "express";
-import { registerSSEClient, removeSSEClient, sseClients } from "../consumers/persister.js";
+import { registerSSEClient, removeSSEClient, sseClients } from "../services/persister.service.js";
 
 const router = Router();
 
