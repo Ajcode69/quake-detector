@@ -4,6 +4,7 @@
 
 import { Router } from "express";
 import { createLocation, getLocations, deleteLocation } from "../services/location.service.js";
+import { invalidateLocationCache } from "../services/location.cache.js";
 
 const router = Router();
 
@@ -36,6 +37,7 @@ router.post("/", async (req, res) => {
     }
 
     const location = await createLocation({ label, latitude, longitude, radiusKm, telegramChatId });
+    await invalidateLocationCache();
     res.status(201).json({ data: location });
   } catch (err) {
     req.log.error({ err }, "failed to create location");
@@ -49,6 +51,7 @@ router.post("/", async (req, res) => {
 router.delete("/:id", async (req, res) => {
   try {
     await deleteLocation(parseInt(req.params.id));
+    await invalidateLocationCache();
     res.json({ success: true });
   } catch (err) {
     req.log.error({ err }, "failed to delete location");

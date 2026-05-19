@@ -1,6 +1,6 @@
 import { createLogger } from "../../../../shared/logger.js";
 import { getEventForReeval } from "../services/earthquake.service.js";
-import { findNearbyLocationsCached, getAllChatIdsCached } from "../services/location.cache.js";
+import { findNearbyLocations, getAllChatIds } from "../services/location.cache.js";
 import { isDuplicateAlert, isSwarmDuplicate, computeSwarmHash, saveAlert } from "../services/alert.service.js";
 import { detectSwarm, SWARM_WINDOW_HOURS, SWARM_RADIUS_KM } from "../services/swarm.service.js";
 import { formatAlertMessage } from "./notifier.service.js";
@@ -18,7 +18,7 @@ const SIGNIFICANT_SIG_THRESHOLD = 600;
  * Handle system alerts (source silence, etc.).
  */
 export async function handleSystemAlert(payload) {
-  const chatIds = getAllChatIdsCached();
+  const chatIds = await getAllChatIds();
   for (const chatId of chatIds) {
     const alertData = {
       eventId: payload.id,
@@ -60,7 +60,7 @@ export async function evaluateEvent(event, isRevision) {
 
   // Rule 1a: Global magnitude
   if (mag >= GLOBAL_MAG_THRESHOLD) {
-    const chatIds = getAllChatIdsCached();
+    const chatIds = await getAllChatIds();
     for (const chatId of chatIds) {
       addOrMergeAlert(triggeredAlerts, chatId, {
         type: "global",
@@ -71,7 +71,7 @@ export async function evaluateEvent(event, isRevision) {
 
   // Rule 1b: Tsunami
   if (tsunami === 1) {
-    const chatIds = getAllChatIdsCached();
+    const chatIds = await getAllChatIds();
     for (const chatId of chatIds) {
       addOrMergeAlert(triggeredAlerts, chatId, {
         type: "tsunami",
@@ -83,7 +83,7 @@ export async function evaluateEvent(event, isRevision) {
   // ── Tier 2: Location-based alerts (per-user) ─────────────
 
   if (mag >= 1.0 && longitude != null && latitude != null) {
-    const nearbyLocations = await findNearbyLocationsCached(longitude, latitude);
+    const nearbyLocations = await findNearbyLocations(longitude, latitude);
 
     for (const loc of nearbyLocations) {
       // Load custom rules for this user+location
@@ -111,10 +111,8 @@ export async function evaluateEvent(event, isRevision) {
   // ── Tier 3: Swarm detection ───────────────────────────────
 
   if (mag >= 1.5 && longitude != null && latitude != null) {
-    // OPTIMIZATION: In-memory filter.
-    // Before hitting the database for a complex spatial query, check our in-memory cache 
-    // to see if any user is even tracking this location. This filters out 99% of global earthquakes instantly.
-    const nearbyLocations = await findNearbyLocationsCached(longitude, latitude);
+    // Check if any user location is near this event before running the heavier swarm query.
+    const nearbyLocations = await findNearbyLocations(longitude, latitude);
 
     if (nearbyLocations.length > 0) {
       const swarm = await detectSwarm(longitude, latitude, id);
