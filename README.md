@@ -49,9 +49,24 @@ Relying entirely on a 1-minute poller ("Speed Layer") is risky. If the service d
 
 ---
 
+## Testing the Telegram Bot
+Once the API server is running, the Telegram bot automatically starts long-polling for messages. 
+
+1. Message the bot using your Telegram account (search for the bot username associated with your `.env` token).
+2. **Auto-registration**: You do not need to create an account. Simply say "Hi" or send `/start` to instantly register your Telegram Chat ID in the database.
+3. Try the following commands:
+   - Type a city name directly (e.g. `Tokyo`) to automatically geocode and add it as a monitored location.
+   - `/locations` — View your monitored locations and their current Risk Scores.
+   - `/status` — View the live system health (last poll, DB counts).
+   - `/digest` — Request an on-demand Daily Digest showing magnitude breakdowns and active regions.
+   - `/addlocation <city>` — Alternative way to add a location.
+   - `/removelocation <id>` — Remove a monitored location.
+
+---
+
 ## Local Development
 1. Ensure PostgreSQL (with PostGIS extension) is running.
-2. Setup environment variables in `.env`.
-3. `npx prisma db push`
-4. Run ingestion worker: `npm run start:ingestion`
-5. Run API server: `npm run start:api`
+2. Setup environment variables in `.env` (including `TELEGRAM_BOT_TOKEN` and `DASHBOARD_URL`).
+3. Push schema: `npx prisma db push`
+4. Run all services at once: `npm run dev`
+   *(Alternatively, run `npm run api`, `npm run ingest`, and `npm run web` in separate terminals).*

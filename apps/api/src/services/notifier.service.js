@@ -69,7 +69,8 @@ function formatEarthquakeAlert(alert) {
   if (tsunami === 1) details += `🌊 *TSUNAMI WARNING ISSUED*\n`;
 
   const link = `https://earthquake.usgs.gov/earthquakes/eventpage/${eventId}`;
-  return `${header}\n\n${details}\n*Triggered rules:*\n${rulesText}\n\n[View on USGS](${link})`;
+  const dashboardLink = config.dashboardUrl ? `\n\n[Open Dashboard](${config.dashboardUrl})` : "";
+  return `${header}\n\n${details}\n*Triggered rules:*\n${rulesText}\n\n[View on USGS](${link})${dashboardLink}`;
 }
 
 function formatSwarmAlert(alert, swarmRule) {
@@ -88,6 +89,10 @@ function formatSwarmAlert(alert, swarmRule) {
   }
 
   msg += `\n_This may indicate elevated seismic activity in the region. Individual events are small, but the pattern is noteworthy._`;
+
+  if (config.dashboardUrl) {
+    msg += `\n\n[Open Dashboard](${config.dashboardUrl})`;
+  }
 
   return msg;
 }
@@ -116,12 +121,22 @@ function formatRiskAlert(alert) {
     msg += `\n\n💡 *Action:* ${actionGuidance.message}`;
   }
 
+  if (config.dashboardUrl) {
+    msg += `\n\n[Open Dashboard](${config.dashboardUrl})`;
+  }
+
   return msg;
 }
 
 function formatSystemAlert(alert) {
   const rule = alert.rules[0];
-  return `⚠️ *SYSTEM ALERT*\n\n${rule.reason}\n\n_The earthquake data source may be temporarily unavailable. Monitoring continues automatically._`;
+  let msg = `⚠️ *SYSTEM ALERT*\n\n${rule.reason}\n\n_The earthquake data source may be temporarily unavailable. Monitoring continues automatically._`;
+  
+  if (config.dashboardUrl) {
+    msg += `\n\n[Open Dashboard](${config.dashboardUrl})`;
+  }
+  
+  return msg;
 }
 
 // ── Telegram delivery ───────────────────────────────────────

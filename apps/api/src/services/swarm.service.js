@@ -10,8 +10,8 @@ import { createLogger } from "../../../../shared/logger.js";
 
 const log = createLogger("service:swarm");
 
-const SWARM_WINDOW_HOURS = 6;
-const SWARM_RADIUS_KM = 50;
+const SWARM_WINDOW_HOURS = 0.5; // 30 minutes
+const SWARM_RADIUS_KM = 200;
 const SWARM_MIN_COUNT = 5;
 const SWARM_MIN_MAG = 1.5; // only count events above this
 

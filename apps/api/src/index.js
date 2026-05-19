@@ -25,6 +25,7 @@ import statsRouter from "./routes/stats.js";
 import alertsRouter from "./routes/alerts.js";
 import healthDetailedRouter from "./routes/health-detailed.js";
 import locationRiskRouter from "./routes/location-risk.js";
+import { startTelegramBot, stopTelegramBot } from "./services/telegram.service.js";
 
 const log = createLogger("api");
 const app = express();
@@ -109,6 +110,7 @@ async function main() {
   scheduleDailyDigest();
   scheduleAlertRetrySweep();
   scheduleRiskScoring();
+  await startTelegramBot();
 
   app.listen(config.port, () => {
     log.info({ port: config.port }, "API server listening");
@@ -116,6 +118,7 @@ async function main() {
 
   async function shutdown(signal) {
     log.info({ signal }, "shutting down API server");
+    stopTelegramBot();
     try {
       await disconnect();
     } catch (err) {
