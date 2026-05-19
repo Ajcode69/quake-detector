@@ -16,6 +16,14 @@ export async function fetchEvents(params = {}) {
   return api(`/api/events?${url.searchParams.toString().replace(API_BASE, "")}`);
 }
 
+export async function fetchMapEvents(params = {}) {
+  const url = new URL(`${API_BASE}/api/events/map`);
+  Object.entries(params).forEach(([k, v]) => {
+    if (v != null && v !== "") url.searchParams.set(k, v);
+  });
+  return api(`/api/events/map?${url.searchParams.toString().replace(API_BASE, "")}`);
+}
+
 export function fetchEvent(id) {
   return api(`/api/events/${id}`);
 }

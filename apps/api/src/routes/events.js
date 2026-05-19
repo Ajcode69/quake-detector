@@ -1,7 +1,7 @@
 
 
 import { Router } from "express";
-import { getEvents, getEventById } from "../services/earthquake.service.js";
+import { getEvents, getEventById, getMapEvents } from "../services/earthquake.service.js";
 
 const router = Router();
 
@@ -37,6 +37,34 @@ router.get("/", async (req, res) => {
     res.json({ data: events, count: totalCount, hasMore: totalCount > parseInt(offset) + events.length });
   } catch (err) {
     req.log.error({ err }, "failed to fetch events");
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+/**
+ * GET /api/events/map
+ * Returns clustered and raw points optimized for map rendering.
+ */
+router.get("/map", async (req, res) => {
+  try {
+    const { minMag, maxMag, minSig, maxSig, since, timeWindow } = req.query;
+
+    let computedSince = since;
+    if (!computedSince && timeWindow) {
+      const now = Date.now();
+      if (timeWindow === "1h") computedSince = new Date(now - 3600_000).toISOString();
+      else if (timeWindow === "24h") computedSince = new Date(now - 86400_000).toISOString();
+      else if (timeWindow === "7d") computedSince = new Date(now - 7 * 86400_000).toISOString();
+      else if (timeWindow === "30d") computedSince = new Date(now - 30 * 86400_000).toISOString();
+    }
+
+    const data = await getMapEvents({
+      minMag, maxMag, minSig, maxSig, since: computedSince
+    });
+
+    res.json({ data });
+  } catch (err) {
+    req.log.error({ err }, "failed to fetch map events");
     res.status(500).json({ error: "Internal server error" });
   }
 });

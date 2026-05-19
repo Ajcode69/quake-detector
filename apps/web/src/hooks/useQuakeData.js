@@ -1,9 +1,10 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import {
-  fetchEvents, fetchHealth, fetchHealthDetailed, fetchStats,
+  fetchEvents, fetchMapEvents, fetchHealth, fetchHealthDetailed, fetchStats,
   fetchAlerts, fetchUserLocations, fetchLocationRisk,
   saveLocation, deleteLocationApi, connectSSE,
 } from "../api";
+import { useQuery, useInfiniteQuery } from "@tanstack/react-query";
 import { getChatId } from "../utils";
 
 /**
@@ -71,6 +72,38 @@ export function useEvents(params = {}, refreshInterval = 600_000) {
     error,
     reload: load,
   };
+}
+
+// ── React Query Hooks ───────────────────────────────────────
+export function useMapEventsQuery(params, enabled = true) {
+  return useQuery({
+    queryKey: ["mapEvents", params],
+    queryFn: async () => {
+      const data = await fetchMapEvents(params);
+      return data.data || [];
+    },
+    enabled,
+    refetchInterval: 600000, // 10 min
+  });
+}
+
+export function useTableEventsQuery(params, enabled = true) {
+  return useInfiniteQuery({
+    queryKey: ["tableEvents", params],
+    queryFn: async ({ pageParam = 0 }) => {
+      const data = await fetchEvents({ ...params, limit: 100, offset: pageParam });
+      return data;
+    },
+    getNextPageParam: (lastPage, allPages) => {
+      const currentCount = allPages.reduce((acc, p) => acc + (p.data?.length || 0), 0);
+      if (lastPage.hasMore && lastPage.data?.length === 100) {
+        return currentCount; // Next offset
+      }
+      return undefined;
+    },
+    enabled,
+    refetchInterval: 600000,
+  });
 }
 
 // ── Stats (POLLING — every 30s) ─────────────────────────────

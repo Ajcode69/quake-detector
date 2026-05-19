@@ -101,6 +101,60 @@ async function getEventsNearLocations({ locationIds, limit = 50, offset = 0, min
 }
 
 /**
+ * Get optimized events for map rendering with PostGIS clustering.
+ */
+export async function getMapEvents({ minMag, maxMag, minSig, maxSig, since } = {}) {
+  const conditions = [];
+  if (minMag != null && minMag !== "") conditions.push(`mag >= ${parseFloat(minMag)}`);
+  if (maxMag != null && maxMag !== "") conditions.push(`mag <= ${parseFloat(maxMag)}`);
+  if (minSig != null && minSig !== "") conditions.push(`sig >= ${parseInt(minSig)}`);
+  if (maxSig != null && maxSig !== "") conditions.push(`sig <= ${parseInt(maxSig)}`);
+  if (since) conditions.push(`event_time >= '${new Date(since).toISOString()}'`);
+
+  const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
+
+  // Clusters for mag < 5.0
+  const clustersQuery = `
+    SELECT
+      ST_GeoHash(geog::geometry, 3) as id,
+      AVG(latitude) as lat,
+      AVG(longitude) as lng,
+      COUNT(*)::int as count,
+      MAX(mag) as "maxMag",
+      'cluster' as type
+    FROM earthquakes
+    ${whereClause ? whereClause + " AND mag < 5.0" : "WHERE mag < 5.0"}
+    GROUP BY ST_GeoHash(geog::geometry, 3)
+  `;
+
+  // Raw points for mag >= 5.0
+  const pointsQuery = `
+    SELECT
+      id,
+      latitude as lat,
+      longitude as lng,
+      1 as count,
+      mag as "maxMag",
+      'point' as type,
+      mag,
+      depth,
+      sig,
+      event_time as "eventTime",
+      impact_score as "impactScore",
+      alert
+    FROM earthquakes
+    ${whereClause ? whereClause + " AND mag >= 5.0" : "WHERE mag >= 5.0"}
+  `;
+
+  const [clusters, points] = await Promise.all([
+    prisma.$queryRawUnsafe(clustersQuery),
+    prisma.$queryRawUnsafe(pointsQuery)
+  ]);
+
+  return [...clusters, ...points];
+}
+
+/**
  * Get a single event with its revision history.
  */
 export async function getEventById(id) {
