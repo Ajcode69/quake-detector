@@ -29,8 +29,22 @@ export function useEvents(params = {}, refreshInterval = 600_000) {
 
   const load = useCallback(async () => {
     try {
-      const result = await fetchEvents(paramsRef.current);
-      setData(result);
+      const currentParams = paramsRef.current;
+      const result = await fetchEvents(currentParams);
+      
+      setData((prev) => {
+        const isAppending = currentParams.offset > 0;
+        const newData = isAppending ? [...prev.data, ...result.data] : result.data;
+        
+        // Deduplicate by ID to be safe against Strict Mode or rapid clicks
+        const uniqueData = newData.filter((v, i, a) => a.findIndex(t => t.id === v.id) === i);
+        
+        return {
+          data: uniqueData,
+          totalCount: result.count || 0,
+          hasMore: result.hasMore || false,
+        };
+      });
       setError(null);
     } catch (err) {
       setError(err.message);
@@ -42,7 +56,10 @@ export function useEvents(params = {}, refreshInterval = 600_000) {
   useEffect(() => {
     setLoading(true);
     load();
-    const id = setInterval(load, refreshInterval);
+    const id = setInterval(() => {
+      // Polling should probably only refresh the first page or we keep it simple
+      if (paramsRef.current.offset === 0) load();
+    }, refreshInterval);
     return () => clearInterval(id);
   }, [load, refreshInterval, JSON.stringify(params)]);
 

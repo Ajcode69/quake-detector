@@ -43,6 +43,8 @@ export default function WorldMap({ events = [], onSelectEvent, height = "100%", 
         const color = magToColor(mag);
         const radius = magToRadius(mag);
         const isRecent = Date.now() - new Date(getEventTime(event)).getTime() < 3600_000;
+        
+        const isBlinking = event.eventClass === "tsunami_risk" || event.eventClass === "major_quake";
 
         return (
           <CircleMarker
@@ -50,11 +52,12 @@ export default function WorldMap({ events = [], onSelectEvent, height = "100%", 
             center={[lat, lon]}
             radius={radius}
             pathOptions={{
-              color: color,
-              fillColor: color,
+              color: isBlinking ? '#ef4444' : color,
+              fillColor: isBlinking ? '#ef4444' : color,
               fillOpacity: isRecent ? 0.7 : 0.4,
               weight: isRecent ? 2 : 1,
               opacity: isRecent ? 0.9 : 0.5,
+              className: isBlinking ? 'svg-pulse' : ''
             }}
             eventHandlers={{
               click: () => onSelectEvent?.(event),
@@ -65,7 +68,18 @@ export default function WorldMap({ events = [], onSelectEvent, height = "100%", 
                 <div className="font-bold" style={{ color }}>M{mag.toFixed(1)}</div>
                 <div>{event.place || "Unknown"}</div>
                 <div className="opacity-70">Depth: {event.depth ? `${parseFloat(event.depth).toFixed(1)}km` : "—"}</div>
-                <div className="opacity-70">{timeAgo(getEventTime(event))}</div>
+                {event.impactScore != null && (
+                  <div className="opacity-90 mt-1">Impact: <span className="font-bold">{event.impactScore}</span></div>
+                )}
+                {event.confidenceScore != null && (
+                  <div className="opacity-90">Confidence: <span className="font-bold">{event.confidenceScore}%</span></div>
+                )}
+                {event.eventClass && (
+                  <div className="opacity-90 capitalize text-amber-400">
+                    {event.eventClass.replace("_", " ")}
+                  </div>
+                )}
+                <div className="opacity-70 mt-1">{timeAgo(getEventTime(event))}</div>
                 {event.tsunami === 1 && <div style={{ color: "#ef4444" }}>🌊 Tsunami Warning</div>}
               </div>
             </Popup>

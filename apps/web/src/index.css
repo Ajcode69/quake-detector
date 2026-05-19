@@ -61,11 +61,16 @@
   from { opacity: 0; }
   to { opacity: 1; }
 }
+@keyframes svgPulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.2; }
+}
 
 .glow-critical { animation: glowCritical 2s ease-in-out infinite; }
 .glow-warning { animation: glowWarning 2.5s ease-in-out infinite; }
 .animate-slide-up { animation: slideUp 0.3s ease-out; }
 .animate-fade-in { animation: fadeIn 0.4s ease-out; }
+.svg-pulse { animation: svgPulse 1.5s cubic-bezier(0.4, 0, 0.6, 1) infinite; }
 
 /* ── Map marker pulse ────────────────────────────────── */
 .marker-pulse {

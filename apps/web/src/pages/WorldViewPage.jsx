@@ -19,6 +19,7 @@ export default function WorldViewPage() {
   const [minMagFilter, setMinMagFilter] = useState("");
   const [alertFilter, setAlertFilter] = useState("");
   const [regionFilter, setRegionFilter] = useState("");
+  const [eventClassFilter, setEventClassFilter] = useState("");
   const [orderBy, setOrderBy] = useState("eventTime");
   const PAGE_SIZE = 50;
 
@@ -30,18 +31,48 @@ export default function WorldViewPage() {
     minMag: minMagFilter || undefined,
     alertLevel: alertFilter || undefined,
     region: regionFilter || searchQuery || undefined,
+    eventClass: eventClassFilter || undefined,
     orderBy,
+  });
+
+  // ── Smart Map Data Rollup ─────────────────────────────────
+  // To show up to 30 days of data on the map without crashing Leaflet or the browser,
+  // we fetch a separate, denser dataset with a higher limit (1000) and dynamically
+  // increase the minimum magnitude threshold for larger time windows.
+  const mapMinMag = useMemo(() => {
+    let base = 0;
+    if (timeWindow === "30d") base = 3.5;
+    else if (timeWindow === "7d") base = 2.5;
+    
+    if (minMagFilter) return Math.max(base, parseFloat(minMagFilter));
+    return base > 0 ? base : undefined;
+  }, [timeWindow, minMagFilter]);
+
+  const { events: fetchedMapEvents } = useEvents({
+    timeWindow,
+    limit: 1000,
+    offset: 0,
+    minMag: mapMinMag,
+    alertLevel: alertFilter || undefined,
+    region: regionFilter || searchQuery || undefined,
+    eventClass: eventClassFilter || undefined,
   });
 
   // Map uses polled events only (critical SSE events overlaid if present)
   const mapEvents = useMemo(() => {
     const seen = new Set();
-    return [...criticalEvents, ...events].filter((e) => {
+    return [...criticalEvents, ...fetchedMapEvents].filter((e) => {
       if (seen.has(e.id)) return false;
       seen.add(e.id);
+      
+      // Apply event class filter to the map if one is selected
+      if (eventClassFilter && e.eventClass !== eventClassFilter) {
+        return false;
+      }
+      
       return true;
-    }).slice(0, 500);
-  }, [criticalEvents, events]);
+    }).slice(0, 1000);
+  }, [criticalEvents, fetchedMapEvents, eventClassFilter]);
 
   return (
     <div className="p-4 space-y-4 animate-fade-in">
@@ -149,6 +180,19 @@ export default function WorldViewPage() {
           className="bg-surface-card border border-border rounded-md px-2 py-1 text-xs text-slate-300 placeholder:text-slate-600 focus:outline-none focus:border-blue-500/50 w-40"
         />
         <select
+          value={eventClassFilter}
+          onChange={(e) => { setEventClassFilter(e.target.value); setPage(0); }}
+          className="bg-surface-card border border-border rounded-md px-2 py-1 text-xs text-slate-300 focus:outline-none focus:border-blue-500/50"
+        >
+          <option value="">All Event Classes</option>
+          <option value="tsunami_risk">🌊 Tsunami Risk</option>
+          <option value="major_quake">🔴 Major Quake</option>
+          <option value="strong_shaking">🟠 Strong Shaking</option>
+          <option value="felt_quake">🟡 Felt Quake</option>
+          <option value="routine_quake">🟢 Routine Quake</option>
+          <option value="data_unverified">⚠️ Unverified</option>
+        </select>
+        <select
           value={orderBy}
           onChange={(e) => { setOrderBy(e.target.value); setPage(0); }}
           className="bg-surface-card border border-border rounded-md px-2 py-1 text-xs text-slate-300 focus:outline-none focus:border-blue-500/50"
@@ -157,12 +201,16 @@ export default function WorldViewPage() {
           <option value="mag">Sort: Magnitude</option>
           <option value="sig">Sort: Significance</option>
           <option value="depth">Sort: Depth</option>
+          <option value="impactScore">Sort: Impact Score</option>
         </select>
-        <span className="text-[10px] text-slate-600 ml-auto font-mono">{totalCount} events</span>
+        <span className="text-[10px] text-slate-600 ml-auto font-mono flex items-center gap-2">
+          {loading && <span className="w-3 h-3 border-2 border-blue-500/30 border-t-blue-500 rounded-full animate-spin" />}
+          {totalCount} events
+        </span>
       </div>
 
       {/* ── Event Table ─────────────────────────────────────── */}
-      <div className="bg-surface-card border border-border rounded-lg overflow-hidden">
+      <div className={`bg-surface-card border border-border rounded-lg overflow-hidden transition-opacity duration-200 ${loading && events.length > 0 ? 'opacity-50' : 'opacity-100'}`}>
         <div className="overflow-x-auto">
           <table className="w-full ops-table">
             <thead>
@@ -171,10 +219,10 @@ export default function WorldViewPage() {
                 <th>Mag</th>
                 <th>Location</th>
                 <th>Depth</th>
-                <th>Sig</th>
-                <th>MMI</th>
+                <th>Class</th>
+                <th>Impact</th>
+                <th>Conf</th>
                 <th>Alert</th>
-                <th>Status</th>
                 <th>Network</th>
               </tr>
             </thead>
@@ -203,8 +251,33 @@ export default function WorldViewPage() {
                       </td>
                       <td className="max-w-[200px] truncate">{ev.place || "—"}</td>
                       <td className="font-mono">{ev.depth != null ? `${parseFloat(ev.depth).toFixed(1)}` : "—"}</td>
-                      <td className="font-mono">{ev.sig ?? "—"}</td>
-                      <td className="font-mono">{ev.mmi != null ? parseFloat(ev.mmi).toFixed(1) : "—"}</td>
+                      <td>
+                        {ev.eventClass ? (
+                          <span className="text-xs text-slate-300 capitalize">
+                            {ev.eventClass.replace("_", " ")}
+                          </span>
+                        ) : (
+                          <span className="text-slate-600">—</span>
+                        )}
+                      </td>
+                      <td>
+                        {ev.impactScore != null ? (
+                          <span className={`font-mono text-xs ${ev.impactScore >= 75 ? 'text-red-400 font-bold' : 'text-slate-300'}`}>
+                            {ev.impactScore}
+                          </span>
+                        ) : (
+                          <span className="text-slate-600">—</span>
+                        )}
+                      </td>
+                      <td>
+                        {ev.confidenceScore != null ? (
+                          <span className={`font-mono text-xs ${ev.confidenceScore < 40 ? 'text-amber-400 font-bold' : 'text-slate-300'}`}>
+                            {ev.confidenceScore}%
+                          </span>
+                        ) : (
+                          <span className="text-slate-600">—</span>
+                        )}
+                      </td>
                       <td>
                         {ev.alert ? (
                           <span className={`ops-badge ${alertColor(ev.alert).bg} ${alertColor(ev.alert).text}`}>
@@ -213,11 +286,6 @@ export default function WorldViewPage() {
                         ) : (
                           <span className="text-slate-600">—</span>
                         )}
-                      </td>
-                      <td>
-                        <span className={`text-[10px] ${ev.status === "reviewed" ? "text-green-400" : "text-slate-500"}`}>
-                          {ev.status || "—"}
-                        </span>
                       </td>
                       <td className="font-mono text-xs text-slate-500">{ev.net?.toUpperCase() || "—"}</td>
                     </tr>
@@ -228,31 +296,16 @@ export default function WorldViewPage() {
           </table>
         </div>
 
-        {/* Pagination */}
-        {totalCount > PAGE_SIZE && (
-          <div className="flex items-center justify-between px-4 py-2 border-t border-border">
-            <span className="text-[10px] text-slate-500">
-              Showing {page * PAGE_SIZE + 1}–{Math.min((page + 1) * PAGE_SIZE, totalCount)} of {totalCount}
-            </span>
-            <div className="flex items-center gap-1">
-              <button
-                onClick={() => setPage(Math.max(0, page - 1))}
-                disabled={page === 0}
-                className="px-2 py-1 text-xs rounded bg-surface border border-border text-slate-400 hover:text-white disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
-              >
-                ← Prev
-              </button>
-              <span className="text-[10px] text-slate-500 px-2 font-mono">
-                Page {page + 1} / {Math.ceil(totalCount / PAGE_SIZE)}
-              </span>
-              <button
-                onClick={() => setPage(page + 1)}
-                disabled={!hasMore}
-                className="px-2 py-1 text-xs rounded bg-surface border border-border text-slate-400 hover:text-white disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
-              >
-                Next →
-              </button>
-            </div>
+        {/* Pagination -> Load More */}
+        {hasMore && (
+          <div className="flex items-center justify-center px-4 py-4 border-t border-border bg-surface">
+            <button
+              onClick={() => setPage(page + 1)}
+              disabled={loading}
+              className="px-6 py-2 text-xs font-semibold uppercase tracking-wider rounded bg-surface-card border border-border text-slate-300 hover:text-white hover:border-slate-500 disabled:opacity-50 disabled:cursor-not-allowed transition-all"
+            >
+              {loading ? "Loading..." : "Load More Events"}
+            </button>
           </div>
         )}
       </div>

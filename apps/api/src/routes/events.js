@@ -7,7 +7,7 @@ const router = Router();
 
 router.get("/", async (req, res) => {
   try {
-    const { limit = 50, offset = 0, minMag, since, locations, timeWindow, alertLevel, region, orderBy } = req.query;
+    const { limit = 50, offset = 0, minMag, since, locations, timeWindow, alertLevel, region, orderBy, eventClass } = req.query;
 
     const locationIds = locations
       ? locations.split(",").map(Number).filter(Boolean)
@@ -22,7 +22,7 @@ router.get("/", async (req, res) => {
       else if (timeWindow === "30d") computedSince = new Date(now - 30 * 86400_000).toISOString();
     }
 
-    const events = await getEvents({
+    const { events, totalCount } = await getEvents({
       limit: Math.min(parseInt(limit), 200),
       offset: parseInt(offset),
       minMag: minMag ? parseFloat(minMag) : undefined,
@@ -31,9 +31,10 @@ router.get("/", async (req, res) => {
       alertLevel,
       region,
       orderBy,
+      eventClass,
     });
 
-    res.json({ data: events, count: events.length });
+    res.json({ data: events, count: totalCount, hasMore: totalCount > parseInt(offset) + events.length });
   } catch (err) {
     req.log.error({ err }, "failed to fetch events");
     res.status(500).json({ error: "Internal server error" });
