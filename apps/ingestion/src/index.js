@@ -66,11 +66,11 @@ async function main() {
   // 1. Initial Backfill / Reconcile missing data
   await checkAndRunReconciliation();
 
-  // 2. Schedule monthly reconciliation cron
+  // 2. Schedule daily check for reconciliation
+  const ONE_DAY_MS = 24 * 60 * 60 * 1000;
   setInterval(() => {
-    log.info("running scheduled reconciliation...");
-    runReconciliation().catch(err => log.error({ err }, "scheduled reconciliation failed"));
-  }, ONE_MONTH_MS);
+    checkAndRunReconciliation().catch(err => log.error({ err }, "scheduled reconciliation check failed"));
+  }, ONE_DAY_MS);
 
   // 3. Initial poll and loop
   await safePoll();
