@@ -41,7 +41,7 @@ export async function searchLocations(query) {
     new URLSearchParams({
       q: query,
       format: "json",
-      limit: "5",
+      limit: "10",
       addressdetails: "1",
       "accept-language": "en",
     });

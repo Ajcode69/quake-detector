@@ -41,16 +41,16 @@ function LocationPicker({ onAdd, currentCount }) {
           />
           {results.length > 0 && (
             <div className="absolute top-full left-0 right-0 mt-1 bg-surface-card border border-border rounded-md overflow-hidden z-20 max-h-48 overflow-y-auto">
-              {results.map((r, i) => (
+              {results.slice(0, 10).map((r, i) => (
                 <button
                   key={i}
                   onClick={() => {
-                    onAdd({ label: r.label || r.display_name, latitude: parseFloat(r.lat), longitude: parseFloat(r.lon), radiusKm: 500 });
+                    onAdd({ label: r.shortName || r.displayName, latitude: parseFloat(r.lat), longitude: parseFloat(r.lon), radiusKm: 500 });
                     setQuery(""); setResults([]);
                   }}
                   className="w-full text-left px-3 py-2 text-xs text-slate-300 hover:bg-surface-card-hover transition-colors border-b border-border/50 last:border-0"
                 >
-                  {r.label || r.display_name}
+                  {r.displayName || r.shortName}
                 </button>
               ))}
             </div>

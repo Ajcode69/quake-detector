@@ -73,26 +73,10 @@ export default function App() {
 
           {/* Status indicators */}
           <div className="flex items-center gap-3 ml-3">
-            {/* Feed status */}
-            <div className="flex items-center gap-1.5 text-[11px]">
-              <span className={`w-1.5 h-1.5 rounded-full ${feedOk ? "bg-green-500 animate-pulse-dot" : "bg-red-500"}`} />
-              <span className={feedOk ? "text-green-400" : "text-red-400"}>
-                {feedOk ? "Feed Live" : "Feed Down"}
-              </span>
-            </div>
-
-            {/* SSE status */}
-            <div className="flex items-center gap-1.5 text-[11px]">
-              <span className={`w-1.5 h-1.5 rounded-full ${connected ? "bg-blue-500" : "bg-slate-600"}`} />
-              <span className={connected ? "text-blue-400" : "text-slate-500"}>SSE</span>
-            </div>
-
-            {/* Last poll */}
-            {lastPoll && (
-              <span className="text-[10px] text-slate-500 hidden xl:inline font-mono">
-                Last poll: {timeAgo(lastPoll)}
-              </span>
-            )}
+            <span
+              className={`w-2 h-2 rounded-full ${feedOk && connected ? "bg-green-500 animate-pulse-dot" : "bg-red-500"}`}
+              title={feedOk && connected ? "Active" : "Offline"}
+            />
           </div>
         </div>
       </header>
