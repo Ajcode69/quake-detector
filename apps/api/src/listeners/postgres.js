@@ -39,16 +39,15 @@ export async function startPostgresListener() {
         }
 
         if (payload.revision) {
-           // We could fetch revisions here if needed, but evaluateRevision expects specific format
-           // To keep it simple, we'll re-evaluate the whole event
-           await evaluateRevision(payload.id);
+
+          await evaluateRevision(payload.id);
         } else {
-           // Broadcast to SSE
-           broadcastToSSE(event);
-           // Evaluate alerts
-           await evaluateEvent(event, false);
+          // Broadcast to SSE
+          broadcastToSSE(event);
+          // Evaluate alerts
+          await evaluateEvent(event, false);
         }
-      } 
+      }
       else if (msg.channel === 'earthquake_alerts') {
         await processAlertId(payload.id);
       }

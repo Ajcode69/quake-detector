@@ -1,11 +1,3 @@
-/**
- * Consumer: event-persister
- * Reads earthquake.raw → broadcasts to SSE clients filtered by their registered locations.
- *
- * Each SSE client registers with locationIds (their monitored locations).
- * On each event, we check proximity against only those locations.
- * If no locations are registered, the client gets ALL events (global view).
- */
 
 import { createLogger } from "../../../../shared/logger.js";
 import { getLocationsByIds } from "../services/location.service.js";

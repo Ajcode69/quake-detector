@@ -1,7 +1,3 @@
-/**
- * Earthquake service for the ingestion worker.
- * Handles upsert with revision detection.
- */
 
 import prisma from "../../../../shared/db/client.js";
 import { createLogger } from "../../../../shared/logger.js";
@@ -10,7 +6,7 @@ import { calculateAllScores } from "../utils/scoring.js";
 
 const log = createLogger("service:earthquake");
 
-// Fields we track for revisions (safety-critical)
+
 const WATCH_FIELDS = ["mag", "alert", "mmi", "sig", "tsunami"];
 
 /**
@@ -26,11 +22,14 @@ export async function upsertEarthquake(feature, options = { notify: true }) {
 
   const { confidenceScore, impactScore, eventClass } = calculateAllScores(p, depth);
 
-  const existing = await prisma.earthquake.findUnique({
-    where: { id: feature.id },
+  const allIds = p.ids ? p.ids.split(',').filter(Boolean) : [];
+  if (!allIds.includes(feature.id)) allIds.push(feature.id);
+
+  const existingEvents = await prisma.earthquake.findMany({
+    where: { id: { in: allIds } },
   });
 
-  if (!existing) {
+  if (existingEvents.length === 0) {
     // ── New event: create + set geog via raw SQL ────────────
     await prisma.earthquake.create({
       data: {
@@ -89,30 +88,51 @@ export async function upsertEarthquake(feature, options = { notify: true }) {
     };
   }
 
-  // ── Existing event: check for revisions ───────────────────
+  // ── Existing event(s): Merge & check for revisions ───────────────────
+
+  // Find the best existing event among duplicates (highest confidence score)
+  const bestExisting = existingEvents.reduce((prev, current) => {
+    return (prev.confidenceScore || 0) > (current.confidenceScore || 0) ? prev : current;
+  });
+
+  // Delete inferior duplicates to merge them into a single event
+  const duplicateIds = existingEvents.map(e => e.id).filter(id => id !== bestExisting.id);
+  if (duplicateIds.length > 0) {
+    await prisma.earthquake.deleteMany({
+      where: { id: { in: duplicateIds } }
+    });
+    log.info({ deleted: duplicateIds, kept: bestExisting.id }, "merged duplicate events");
+  }
+
+  // Determine if incoming data has higher/equal quality
+  const incomingWins = confidenceScore >= (bestExisting.confidenceScore || 0);
+
+  let dataToUpdate;
+  let updateLon = bestExisting.longitude;
+  let updateLat = bestExisting.latitude;
   const revisions = [];
-  for (const field of WATCH_FIELDS) {
-    const oldVal = existing[field];
-    const newVal = p[field];
-    if (newVal != null && String(oldVal) !== String(newVal)) {
-      revisions.push({ field, old: oldVal, new: newVal });
-    }
-  }
 
-  const COMPUTED_WATCH = ["impactScore", "eventClass"];
-  const computedNew = { impactScore, eventClass };
-  for (const field of COMPUTED_WATCH) {
-    const oldVal = existing[field];
-    const newVal = computedNew[field];
-    if (newVal != null && String(oldVal) !== String(newVal)) {
-      revisions.push({ field, old: oldVal, new: newVal });
+  if (incomingWins) {
+    // Generate revisions against the best existing event
+    for (const field of WATCH_FIELDS) {
+      const oldVal = bestExisting[field];
+      const newVal = p[field];
+      if (newVal != null && String(oldVal) !== String(newVal)) {
+        revisions.push({ field, old: oldVal, new: newVal });
+      }
     }
-  }
 
-  // Always update with latest data
-  await prisma.earthquake.update({
-    where: { id: feature.id },
-    data: {
+    const COMPUTED_WATCH = ["impactScore", "eventClass"];
+    const computedNew = { impactScore, eventClass };
+    for (const field of COMPUTED_WATCH) {
+      const oldVal = bestExisting[field];
+      const newVal = computedNew[field];
+      if (newVal != null && String(oldVal) !== String(newVal)) {
+        revisions.push({ field, old: oldVal, new: newVal });
+      }
+    }
+
+    dataToUpdate = {
       mag: p.mag,
       magType: p.magType,
       place: p.place,
@@ -134,21 +154,45 @@ export async function upsertEarthquake(feature, options = { notify: true }) {
       dmin: p.dmin,
       rms: p.rms,
       gap: p.gap,
-    },
+      net: p.net,
+      code: p.code,
+      ids: p.ids,
+      sources: p.sources,
+      types: p.types,
+      eventType: p.type || "earthquake",
+      url: p.url,
+      detailUrl: p.detail,
+    };
+    updateLon = lon;
+    updateLat = lat;
+  } else {
+    // Existing wins: we keep its data, but update ids and timestamp to reflect merge
+    dataToUpdate = {
+      ids: p.ids,
+      updatedAt: p.updated ? new Date(p.updated) : bestExisting.updatedAt,
+    };
+  }
+
+  // Always update bestExisting
+  await prisma.earthquake.update({
+    where: { id: bestExisting.id },
+    data: dataToUpdate,
   });
 
-  // Update geog
-  await prisma.$executeRaw`
-    UPDATE earthquakes
-    SET geog = ST_SetSRID(ST_MakePoint(${lon}, ${lat}), 4326)::geography
-    WHERE id = ${feature.id}
-  `;
+  // Update geog if location changed
+  if (incomingWins) {
+    await prisma.$executeRaw`
+      UPDATE earthquakes
+      SET geog = ST_SetSRID(ST_MakePoint(${updateLon}, ${updateLat}), 4326)::geography
+      WHERE id = ${bestExisting.id}
+    `;
+  }
 
   // Record revisions
   if (revisions.length > 0) {
     await prisma.eventRevision.createMany({
       data: revisions.map((r) => ({
-        eventId: feature.id,
+        eventId: bestExisting.id,
         fieldName: r.field,
         oldValue: String(r.old),
         newValue: String(r.new),
@@ -156,7 +200,7 @@ export async function upsertEarthquake(feature, options = { notify: true }) {
     });
 
     log.info(
-      { id: feature.id, changes: revisions.map((r) => `${r.field}: ${r.old}→${r.new}`) },
+      { id: bestExisting.id, changes: revisions.map((r) => `${r.field}: ${r.old}→${r.new}`) },
       "event revised"
     );
   }
@@ -164,6 +208,8 @@ export async function upsertEarthquake(feature, options = { notify: true }) {
   return {
     isNew: false,
     revisions,
-    event: { id: feature.id, ...p, longitude: lon, latitude: lat, depth, confidenceScore, impactScore, eventClass },
+    event: incomingWins
+      ? { id: bestExisting.id, ...p, longitude: lon, latitude: lat, depth, confidenceScore, impactScore, eventClass }
+      : { ...bestExisting, ids: p.ids, updatedAt: dataToUpdate.updatedAt },
   };
 }
