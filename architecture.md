@@ -394,7 +394,7 @@ At this scale, the system remains healthy:
 
 ---
 
-# 11. Requirement Coverage
+# 13. Requirement Coverage
 
 | Assignment Requirement | Technical Implementation | Relevant Source Files |
 | :--- | :--- | :--- |
@@ -412,6 +412,90 @@ At this scale, the system remains healthy:
 
 ---
 
-# 12. Final Notes
+# 14. Final Notes On Current Setup
 
 The current implementation intentionally optimizes for reliability, operational visibility, low infrastructure complexity, and clear scaling boundaries. Rather than prematurely introducing distributed infrastructure, the system focuses on building a reliable operational core first while explicitly documenting where architectural transitions become necessary as scale increases.
+
+# 15. Future Architecture (V1 Scaling): 10,000 Users & 30,000 Locations
+
+This section outlines the architectural transition required to safely handle IoT-scale ingestion and massive concurrent user demand.
+
+## A. Target Metrics
+
+* **Availability:** Alert delivery $\ge$ 99.9% (8.7 hours downtime/year max). Dashboard $\ge$ 99.5%. Ingestion pipeline $\ge$ 99.95%.
+* **Latency:** Real-time alert end-to-end $\le$ 2 seconds from event ingest to user notification. Dashboard API P99 $\le$ 200ms. SSE event delivery $\le$ 500ms after alert fires.
+* **Throughput:** Peak IoT-equivalent 2,000 events/minute (simulating a dense sensor network). Alert fan-out to 10,000 users within 3 seconds of trigger.
+
+## B. Capacity Estimates
+
+* **Users and locations:** 10,000 users, 30,000 locations, average 3 locations/user. Assume 40% concurrent = 4,000 active SSE connections at peak.
+* **Event volume (IoT scale):** 2,000 events/minute = 33 events/second. Each enriched event payload 4KB. That's 132KB/second ingestion throughput. Per day: 2.88M events $\times$ 4KB = 11.5GB raw data/day.
+* **Alert fan-out:** A significant earthquake can match 200 of 30,000 locations. 200 locations $\times$ average 1.3 users/location = 260 users to notify per event. At 33 events/second peak, worst case 33 $\times$ 260 = 8,580 SSE pushes/second.
+* **Swarm detection:** Per event, check if geohash cell has $>5$ events in 30 minutes. Pure Redis operation, target $\le$ 2ms per check.
+* **Storage:** Hot (Postgres): last 7 days = 7 $\times$ 2.88M = $\sim$20M rows, at $\sim$500 bytes/row = 10GB. Cold (object store, Parquet): 30 days = $\sim$120GB, compresses to $\sim$30GB at 4:1 Parquet compression.
+* **Daily digest:** 10,000 Telegram messages at Telegram's 30 msg/sec limit = 333 seconds = 5.5 minutes of send time. Aggregation query over 30-day cold store, not Postgres.
+
+## C. Revised Architecture Diagram
+
+[System Architecture Diagram - Figma](https://www.figma.com/board/vY9wG4BaiqnjfVkn1H1Ox9/Realtime-IOT-Platform-Architecture-v1?node-id=0-1&t=JROjPpqjUoZovvUQ-1)
+
+## D. Core Scaling Upgrades
+
+### 1. Ingestion Layer
+**Edge polling service** — single responsibility: poll USGS every 60 seconds, deduplicate by event ID + updated timestamp, publish to `events.raw`. Stateless, one instance is enough (USGS is a single source). Failure handling: exponential backoff on HTTP errors, publishes to `health.ingestion` on every poll attempt (success or failure). If silent for 10 minutes, a Kafka consumer on the health topic fires the feed-silence alert.
+
+**Why Kafka here**: The processor and alert engine are independent consumers. If the alert engine is slow or restarting, it reads from its own offset without blocking ingestion. You get replay for free. **Kafka runs as 3 brokers** (replication factor 3, min ISR 2). You can lose one broker with zero data loss. At 8MB/minute throughput, this is lightly loaded. 
+
+### 2. Processor Service (2 instances, same consumer group)
+Consumes `events.raw`. For each event: validate schema, compute which of 30,000 locations are within 500km using a single PostGIS query, classify severity, then writes to three sinks:
+* **Postgres upsert (hot store)**: current event state, indexed for dashboard reads.
+* **Object store (cold)**: Parquet files partitioned by `year/month/day`. Written in micro-batches every 5 minutes.
+* **Redis sorted sets (swarm state)**: geohash bucketed.
+
+It publishes the enriched event to `events.enriched` for the alert engine. Partition assignment is automatic via the Kafka consumer group protocol.
+
+### 3. Hot Store — PostgreSQL with PgBouncer
+PostGIS provides native geographic operators that run against GiST indexes. A 30,000-row locations table with a GiST index answers "which locations are within 500km" in $\sim$15ms. 
+**PgBouncer** is placed in transaction pooling mode in front of Postgres to multiplex $\sim$70 application-level connections through a pool of 20 actual Postgres connections, saving 250MB+ of connection state memory. A **Read replica** handles dashboard read queries (recent events, location stats, risk score data) to separate OLAP-style dashboard reads from OLTP event writes.
+
+### 4. Cold Store — Object Store with Parquet
+Historical queries (30-day views, daily digest) run against Parquet files via an embedded query engine (DuckDB). At 30GB of cold data, DuckDB running in-process answers a "top 3 active regions last 30 days" query in 2–4 seconds without a cluster. Parquet provides a 4:1 compression ratio and columnar access, making queries 10–15$\times$ faster than raw JSON.
+
+### 5. Swarm Detection — Redis Sorted Sets with Geohash
+Instead of querying Postgres per event, we maintain an in-memory spatial-temporal index in Redis.
+* **Structure**: One sorted set per geohash cell at precision 4. Key: `swarm:{geohash}`, value: event ID, score: Unix timestamp in ms.
+* **Operations**: On each event, compute geohash, `ZADD` the event, `ZREMRANGEBYSCORE` to evict entries older than 30 minutes, and `ZCARD` to get the current count. 
+
+All operations run in a single atomic Lua script. Total Redis latency is $\sim$2ms per event compared to 1.8 seconds in Postgres.
+
+### 6. Alert Engine (2 instances)
+Consumes `events.enriched`. Runs swarm check (Redis), magnitude threshold check, and per-location proximity check (no DB queries needed since the enriched event already has matched location IDs). If any rule fires, it publishes to `alerts.triggered` and a Redis pub/sub channel `alerts:{user_id}` for SSE delivery.
+
+### 7. SSE Delivery Pipeline
+The communication pattern is strictly server-to-client: alerts fire, server pushes to user. WebSockets are avoided as bidirectional communication is unnecessary.
+**SSE delivery path**: The Alert engine publishes to the Redis pub/sub channel `alerts:{user_id}`. Each SSE server instance is subscribed to the channels for all user IDs whose connections it holds. 3 SSE server nodes handle up to 1,500 concurrent connections each ($\sim$135MB memory footprint per instance).
+
+### 8. API Layer & Redis Caching
+3 stateless API server instances behind an L7 load balancer handle dashboard data reads and location management.
+* **Response cache**: Dashboard API responses cached with 30-second TTL.
+* **Location lookup cache**: The 30,000 user locations cached in Redis as a hash.
+* **Risk score cache**: Computed risk scores cached per location with a 5-minute TTL.
+
+### 9. Telegram Service (Dedicated Webhook & Rate Limiter)
+A separate, isolated service consumes the `alerts.triggered` Kafka topic and the daily digest trigger. 
+
+* **Webhook-Based Command Handling**: Instead of the V1 long-polling approach (which does not scale horizontally), the service registers a webhook with Telegram. User commands and location registrations are pushed directly to a dedicated load-balanced endpoint.
+* **Rate Limit Handling & Queueing**: To strictly adhere to Telegram's 30 msg/sec limit and prevent API bans during massive alert fan-outs (or the 5.5-minute daily digest dispatch), the service uses an internal token-bucket rate limiter backed by Redis. Messages exceeding the rate limit are held in queue and delivered smoothly over time without failing or starving other system processes.
+
+### 10. Hardware Summary
+
+| Component | Nodes | Spec per node |
+|---|---|---|
+| L4 / L7 Load Balancers | 6 total | 2 vCPU, 2-4GB |
+| API / SSE Servers | 6 total | 4 vCPU, 8GB |
+| Kafka Brokers | 3 | 4 vCPU, 16GB, 500GB NVMe |
+| Processor / Alert Engine | 4 total | 4 vCPU, 8GB |
+| Telegram Service | 1 | 2 vCPU, 2GB |
+| Redis (Pub/Sub + Cache) | 3 | 4 vCPU, 16GB |
+| Postgres (Primary + Replica) | 2 | 8 vCPU, 32GB, 500GB SSD |
+| PgBouncer | 2 | 2 vCPU, 2GB |
