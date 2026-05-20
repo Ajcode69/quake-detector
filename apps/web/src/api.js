@@ -1,4 +1,4 @@
-const API_BASE = import.meta.env.VITE_API_URL || "http://localhost:3000";
+const API_BASE = "https://quake-detector.onrender.com";
 
 export const getUserId = () => localStorage.getItem("quake_user_id");
 
@@ -104,7 +104,7 @@ export async function saveLocation({ label, latitude, longitude, radiusKm, teleg
 }
 
 export async function deleteLocationApi(id) {
-  const res = await fetch(`${API_BASE}/api/locations/${id}`, { 
+  const res = await fetch(`${API_BASE}/api/locations/${id}`, {
     method: "DELETE",
     headers: { "x-user-id": getUserId() || "1" },
   });
@@ -134,7 +134,7 @@ export function connectSSE(onEvent, locationIds) {
     }
   };
 
-  source.onerror = () => {};
+  source.onerror = () => { };
 
   return { close: () => source.close(), source };
 }
@@ -148,7 +148,7 @@ export async function login(email, password) {
   });
   const data = await res.json();
   if (!res.ok) throw new Error(data.error || "Login failed");
-  
+
   localStorage.setItem("quake_user_id", data.user.id);
   localStorage.setItem("quake_user_email", data.user.email);
   return data.user;
