@@ -148,13 +148,13 @@ export default function WorldViewPage() {
         <div className="flex bg-surface p-1 rounded-md w-fit">
           <button 
             onClick={() => setActiveView("map")}
-            className={`px-4 py-1.5 text-xs font-bold rounded-sm transition-all ${activeView === "map" ? "bg-blue-500/20 text-blue-400" : "text-slate-500 hover:text-slate-300"}`}
+            className={`px-4 py-1.5 text-xs font-bold rounded-sm transition-all ${activeView === "map" ? "bg-blue-500/20 text-blue-600 dark:text-blue-400" : "text-slate-500 hover:text-slate-100"}`}
           >
             Map View
           </button>
           <button 
             onClick={() => setActiveView("table")}
-            className={`px-4 py-1.5 text-xs font-bold rounded-sm transition-all ${activeView === "table" ? "bg-blue-500/20 text-blue-400" : "text-slate-500 hover:text-slate-300"}`}
+            className={`px-4 py-1.5 text-xs font-bold rounded-sm transition-all ${activeView === "table" ? "bg-blue-500/20 text-blue-600 dark:text-blue-400" : "text-slate-500 hover:text-slate-100"}`}
           >
             Table View
           </button>
@@ -170,8 +170,8 @@ export default function WorldViewPage() {
               }}
               className={`px-3 py-1.5 text-[10px] font-bold rounded-sm transition-all ${
                 timeWindow === tw.key
-                  ? "bg-slate-700 text-white"
-                  : "text-slate-500 hover:text-slate-300"
+                  ? "bg-slate-700 text-slate-100"
+                  : "text-slate-500 hover:text-slate-100"
               }`}
             >
               {tw.label}

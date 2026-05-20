@@ -41,7 +41,7 @@ export default function LoginPage() {
             <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-red-500 to-orange-500 flex items-center justify-center text-xl font-black text-white mb-3 shadow-lg">
               S
             </div>
-            <h1 className="text-2xl font-bold tracking-tight text-white">SeismicOps</h1>
+            <h1 className="text-2xl font-bold tracking-tight text-slate-100">SeismicOps</h1>
             <p className="text-sm text-slate-400 mt-1 text-center">Monitoring & Telemetry Portal</p>
           </div>
 
@@ -58,7 +58,7 @@ export default function LoginPage() {
                 type="email"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
-                className="w-full bg-surface border border-border rounded-lg px-4 py-2.5 text-sm text-white placeholder-slate-600 focus:outline-none focus:border-blue-500/50 focus:ring-1 focus:ring-blue-500/20 transition-all"
+                className="w-full bg-surface border border-border rounded-lg px-4 py-2.5 text-sm text-slate-100 placeholder-slate-600 focus:outline-none focus:border-blue-500/50 focus:ring-1 focus:ring-blue-500/20 transition-all"
                 placeholder="operator@seismic.ops"
               />
             </div>
@@ -68,7 +68,7 @@ export default function LoginPage() {
                 type="password"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
-                className="w-full bg-surface border border-border rounded-lg px-4 py-2.5 text-sm text-white placeholder-slate-600 focus:outline-none focus:border-blue-500/50 focus:ring-1 focus:ring-blue-500/20 transition-all"
+                className="w-full bg-surface border border-border rounded-lg px-4 py-2.5 text-sm text-slate-100 placeholder-slate-600 focus:outline-none focus:border-blue-500/50 focus:ring-1 focus:ring-blue-500/20 transition-all"
                 placeholder="••••••••"
               />
             </div>
@@ -94,7 +94,7 @@ export default function LoginPage() {
             type="button"
             onClick={(e) => handleLogin(e, true)}
             disabled={loading}
-            className="w-full bg-surface border border-border hover:bg-surface-card text-white font-medium text-sm py-2.5 rounded-lg transition-colors disabled:opacity-50 flex items-center justify-center gap-2 group"
+            className="w-full bg-surface border border-border hover:bg-surface-card text-slate-100 font-medium text-sm py-2.5 rounded-lg transition-colors disabled:opacity-50 flex items-center justify-center gap-2 group"
           >
             ⚡ <span className="group-hover:text-blue-400 transition-colors">Fast Login (Admin)</span>
           </button>

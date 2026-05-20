@@ -1,6 +1,7 @@
 import { MapContainer, TileLayer, CircleMarker, Marker, Popup, useMap } from "react-leaflet";
 import L from "leaflet";
 import { useEffect } from "react";
+import { useOutletContext } from "react-router-dom";
 import { magToColor, magToRadius, getEventTime, timeAgo } from "../../utils";
 
 function FitBounds({ events }) {
@@ -20,6 +21,16 @@ function FitBounds({ events }) {
 export default function WorldMap({ events = [], onSelectEvent, height = "100%", center, zoom, fitBounds = false }) {
   const validEvents = events.filter((e) => (e.latitude || e.lat) && (e.longitude || e.lng));
 
+  let context = null;
+  try {
+    context = useOutletContext();
+  } catch (_) {}
+  const theme = context?.theme || (document.documentElement.classList.contains("dark") ? "dark" : "light");
+
+  const tileUrl = theme === "dark"
+    ? "https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png"
+    : "https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png";
+
   return (
     <MapContainer
       center={center || [20, 0]}
@@ -30,7 +41,8 @@ export default function WorldMap({ events = [], onSelectEvent, height = "100%", 
       className="z-0"
     >
       <TileLayer
-        url="https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png"
+        key={theme}
+        url={tileUrl}
         attribution='&copy; <a href="https://carto.com/">CARTO</a>'
         maxZoom={18}
       />
@@ -54,9 +66,9 @@ export default function WorldMap({ events = [], onSelectEvent, height = "100%", 
           return (
             <Marker key={event.id} position={[lat, lon]} icon={icon}>
               <Popup>
-                <div className="text-xs space-y-1" style={{ color: "#e2e8f0", minWidth: 140 }}>
-                  <div className="font-bold text-blue-400">Cluster of {count} Events</div>
-                  <div>Max Magnitude: <span className="font-bold text-amber-400">M{mag.toFixed(1)}</span></div>
+                <div className="text-xs space-y-1" style={{ minWidth: 140 }}>
+                  <div className="font-bold text-blue-500">Cluster of {count} Events</div>
+                  <div>Max Magnitude: <span className="font-bold text-amber-500">M{mag.toFixed(1)}</span></div>
                 </div>
               </Popup>
             </Marker>
@@ -88,7 +100,7 @@ export default function WorldMap({ events = [], onSelectEvent, height = "100%", 
             }}
           >
             <Popup>
-              <div className="text-xs space-y-1" style={{ color: "#e2e8f0", minWidth: 160 }}>
+              <div className="text-xs space-y-1" style={{ minWidth: 160 }}>
                 <div className="font-bold" style={{ color }}>M{mag.toFixed(1)}</div>
                 <div>{event.place || "Unknown Location"}</div>
                 <div className="opacity-70">Depth: {event.depth ? `${parseFloat(event.depth).toFixed(1)}km` : "—"}</div>
@@ -99,7 +111,7 @@ export default function WorldMap({ events = [], onSelectEvent, height = "100%", 
                   <div className="opacity-90">Confidence: <span className="font-bold">{event.confidenceScore}%</span></div>
                 )}
                 {event.eventClass && (
-                  <div className="opacity-90 capitalize text-amber-400">
+                  <div className="opacity-90 capitalize text-amber-600 font-medium">
                     {event.eventClass.replace("_", " ")}
                   </div>
                 )}

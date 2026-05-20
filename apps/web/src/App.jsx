@@ -1,5 +1,5 @@
 import { Outlet, NavLink, useLocation, Navigate } from "react-router-dom";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { getUserId, logout } from "./api";
 import { useHealth, useSSE, useLocations } from "./hooks/useQuakeData";
 // SSE only receives critical events (M5+, PAGER orange/red, tsunami, swarm).
@@ -20,8 +20,31 @@ export default function App() {
   const { criticalEvents, riskScores, connected } = useSSE(locationIds);
   const [selectedEvent, setSelectedEvent] = useState(null);
   const [searchQuery, setSearchQuery] = useState("");
+  const [theme, setTheme] = useState(() => {
+    try {
+      return localStorage.getItem("theme") || "dark";
+    } catch (_) {
+      return "dark";
+    }
+  });
   const location = useLocation();
   const userId = getUserId();
+
+  useEffect(() => {
+    try {
+      if (theme === "light") {
+        document.documentElement.classList.remove("dark");
+        localStorage.setItem("theme", "light");
+      } else {
+        document.documentElement.classList.add("dark");
+        localStorage.setItem("theme", "dark");
+      }
+    } catch (_) {}
+  }, [theme]);
+
+  const toggleTheme = () => {
+    setTheme((prev) => (prev === "dark" ? "light" : "dark"));
+  };
 
   if (!userId) {
     return <Navigate to="/login" replace state={{ from: location }} />;
@@ -51,8 +74,8 @@ export default function App() {
                 className={({ isActive }) =>
                   `flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-all duration-150 ${
                     isActive
-                      ? "bg-slate-700/50 text-white"
-                      : "text-slate-400 hover:text-slate-200 hover:bg-slate-800/40"
+                      ? "bg-slate-700 text-slate-100 font-semibold"
+                      : "text-slate-400 hover:text-slate-100 hover:bg-slate-800/40"
                   }`
                 }
               >
@@ -77,15 +100,24 @@ export default function App() {
             <span className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-600 text-[10px]">⌘K</span>
           </div>
 
-          {/* Status indicators and Logout */}
-          <div className="flex items-center gap-4 ml-3">
+          {/* Status indicators, Theme Toggle, and Logout */}
+          <div className="flex items-center gap-3 ml-3">
             <span
               className={`w-2 h-2 rounded-full ${feedOk && connected ? "bg-green-500 animate-pulse-dot" : "bg-red-500"}`}
               title={feedOk && connected ? "Active" : "Offline"}
             />
+
+            <button
+              onClick={toggleTheme}
+              className="flex items-center justify-center w-7 h-7 rounded-md border border-border bg-surface text-slate-400 hover:text-slate-100 transition-colors text-xs"
+              title={theme === "dark" ? "Switch to Light Mode" : "Switch to Dark Mode"}
+            >
+              {theme === "dark" ? "☀️" : "🌙"}
+            </button>
+
             <button 
               onClick={() => { logout(); window.location.href = "/login"; }}
-              className="text-xs text-slate-400 hover:text-white transition-colors border border-border px-2 py-1 rounded-md bg-surface"
+              className="text-xs text-slate-400 hover:text-slate-100 transition-colors border border-border px-2.5 py-1 rounded-md bg-surface"
             >
               Logout
             </button>
@@ -110,6 +142,7 @@ export default function App() {
             selectedEvent,
             setSelectedEvent,
             searchQuery,
+            theme,
           }}
         />
       </main>

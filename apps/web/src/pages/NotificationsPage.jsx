@@ -201,7 +201,7 @@ export default function NotificationsPage() {
             key={t.key}
             onClick={() => setTab(t.key)}
             className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-all ${
-              tab === t.key ? "bg-slate-700/50 text-white" : "text-slate-500 hover:text-slate-300"
+              tab === t.key ? "bg-slate-700 text-slate-100 font-semibold" : "text-slate-500 hover:text-slate-100"
             }`}
           >
             <span>{t.icon}</span>

@@ -2,7 +2,7 @@
 
 ## Product Context
 
-SeismicOps is a real-time earthquake monitoring and disaster response platform designed for government agencies, emergency response centers, seismic analysts, and infrastructure monitoring teams.
+SeismicOps is a real-time earthquake monitoring and disaster response platform designed for government agencies and emergency response centers.
 
 The platform ingests live earthquake data from the USGS feeds and transforms it into:
 
@@ -146,78 +146,10 @@ The dashboard should:
 * support fast scanning
 * always show system status
 
----
-
-## C. Seismic Analysts & Monitoring Teams
-
-### Responsibilities
-
-* monitor earthquake patterns
-* analyze swarms
-* track aftershocks
-* detect anomalies
-* study seismic clusters
-
-### What They Care About
-
-* temporal patterns
-* geographic clustering
-* swarm detection
-* historical timelines
-* event revisions
-* event density
-* regional activity trends
-
-### UX Implications
-
-The dashboard should provide:
-
-* timeline analysis
-* map overlays
-* cluster visualization
-* event filtering
-* replay functionality
-* historical analysis tools
 
 ---
 
-## D. Infrastructure Monitoring Teams
 
-These teams monitor critical infrastructure:
-
-* dams
-* railways
-* airports
-* nuclear facilities
-* pipelines
-* power systems
-
-### Responsibilities
-
-* monitor nearby seismic threats
-* receive proximity-based alerts
-* assess infrastructure risk
-* react quickly to dangerous events
-
-### What They Care About
-
-* nearby earthquakes
-* radius-based alerts
-* risk escalation
-* local activity trends
-* reliable notifications
-
-### UX Implications
-
-The system should support:
-
-* location watchlists
-* configurable alert thresholds
-* local risk cards
-* proximity visualization
-* rapid alerts
-
----
 
 # 4. User Pain Points
 

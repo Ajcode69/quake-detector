@@ -151,7 +151,7 @@ function MinimalLocationCard({ location, onRemove, liveScore }) {
 
       {/* Top Section: Title & Label */}
       <div className="flex flex-col space-y-1">
-        <h3 className="text-sm font-bold text-white group-hover:text-blue-400 transition-colors truncate">
+        <h3 className="text-sm font-bold text-slate-100 group-hover:text-blue-400 transition-colors truncate">
           {location.label}
         </h3>
         <p className="text-[10px] text-slate-500 font-mono">
@@ -484,13 +484,13 @@ function LocationDetailedView({ locationId, onBack, onRemove, riskScores, onSele
         <div className="flex items-center gap-3">
           <button
             onClick={onBack}
-            className="flex items-center justify-center w-8 h-8 rounded-lg bg-surface border border-border text-slate-400 hover:text-white hover:bg-slate-800 transition-all font-bold"
+            className="flex items-center justify-center w-8 h-8 rounded-lg bg-surface border border-border text-slate-400 hover:text-slate-100 hover:bg-slate-200/50 dark:hover:bg-slate-800 transition-all font-bold"
             title="Back to Locations"
           >
             ←
           </button>
           <div>
-            <h1 className="text-sm font-bold text-white leading-tight">{location.label}</h1>
+            <h1 className="text-sm font-bold text-slate-100 leading-tight">{location.label}</h1>
             <p className="text-[10px] text-slate-500 font-mono mt-0.5">
               {location.latitude?.toFixed(4)}°, {location.longitude?.toFixed(4)}° · {location.radiusKm}km radius
             </p>

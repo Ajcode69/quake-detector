@@ -4,41 +4,122 @@
 @tailwind components;
 @tailwind utilities;
 
-/* ── Operational Dark Theme Base ─────────────────────── */
+/* ── Light / Dark Mode Color Systems ─────────────────── */
+:root {
+  /* Surface Colors */
+  --color-surface-default: #f8fafc;
+  --color-surface-secondary: #f1f5f9;
+  --color-surface-card: #ffffff;
+  --color-surface-card-hover: #e2e8f0;
+  --color-surface-elevated: #cbd5e1;
+
+  /* Border Colors */
+  --color-border-default: #e2e8f0;
+  --color-border-light: #f1f5f9;
+
+  /* Slate overrides to automatically invert text scale in light mode */
+  --color-slate-50: #0f172a;
+  --color-slate-100: #1e293b;
+  --color-slate-200: #334155;
+  --color-slate-300: #475569;
+  --color-slate-400: #64748b;
+  --color-slate-500: #94a3b8;
+  --color-slate-600: #cbd5e1;
+  --color-slate-700: #e2e8f0;
+  --color-slate-800: #f1f5f9;
+  --color-slate-900: #f8fafc;
+  --color-slate-950: #ffffff;
+
+  /* Leaflet dynamic variables */
+  --color-leaflet-bg: #f8fafc;
+  --color-leaflet-tile-filter: none;
+  --color-leaflet-control-bg: #ffffff;
+  --color-leaflet-control-text: #475569;
+  --color-leaflet-control-border: #cbd5e1;
+  --color-leaflet-control-hover-bg: #f1f5f9;
+  --color-leaflet-control-hover-text: #0f172a;
+  --color-leaflet-popup-bg: #ffffff;
+  --color-leaflet-popup-text: #0f172a;
+  --color-leaflet-popup-border: #cbd5e1;
+  --color-leaflet-popup-shadow: rgba(0, 0, 0, 0.15);
+  --color-leaflet-popup-tip: #ffffff;
+}
+
+.dark {
+  /* Surface Colors */
+  --color-surface-default: #080b12;
+  --color-surface-secondary: #0d1117;
+  --color-surface-card: #111827;
+  --color-surface-card-hover: #1a2332;
+  --color-surface-elevated: #1e293b;
+
+  /* Border Colors */
+  --color-border-default: #1e293b;
+  --color-border-light: #2a3548;
+
+  /* Standard dark mode slate colors */
+  --color-slate-50: #f8fafc;
+  --color-slate-100: #f1f5f9;
+  --color-slate-200: #e2e8f0;
+  --color-slate-300: #cbd5e1;
+  --color-slate-400: #94a3b8;
+  --color-slate-500: #64748b;
+  --color-slate-600: #475569;
+  --color-slate-700: #334155;
+  --color-slate-800: #1e293b;
+  --color-slate-900: #0f172a;
+  --color-slate-950: #020617;
+
+  /* Leaflet dynamic variables */
+  --color-leaflet-bg: #080b12;
+  --color-leaflet-tile-filter: brightness(0.85);
+  --color-leaflet-control-bg: #1a2332;
+  --color-leaflet-control-text: #94a3b8;
+  --color-leaflet-control-border: #2a3548;
+  --color-leaflet-control-hover-bg: #243044;
+  --color-leaflet-control-hover-text: #e2e8f0;
+  --color-leaflet-popup-bg: #1a2332;
+  --color-leaflet-popup-text: #e2e8f0;
+  --color-leaflet-popup-border: #2a3548;
+  --color-leaflet-popup-shadow: rgba(0, 0, 0, 0.5);
+  --color-leaflet-popup-tip: #1a2332;
+}
+
+/* ── Operational Theme Base ─────────────────────────── */
 * {
   scrollbar-width: thin;
-  scrollbar-color: #1e293b #0a0e17;
+  scrollbar-color: var(--color-surface-elevated) var(--color-surface-default);
 }
 
 ::-webkit-scrollbar { width: 6px; height: 6px; }
-::-webkit-scrollbar-track { background: #0a0e17; }
-::-webkit-scrollbar-thumb { background: #1e293b; border-radius: 3px; }
-::-webkit-scrollbar-thumb:hover { background: #334155; }
+::-webkit-scrollbar-track { background: var(--color-surface-default); }
+::-webkit-scrollbar-thumb { background: var(--color-surface-elevated); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: var(--color-surface-card-hover); }
 
-/* ── Leaflet dark theme overrides ────────────────────── */
+/* ── Leaflet dynamic theme overrides ─────────────────── */
 .leaflet-container {
-  background: #080b12 !important;
+  background: var(--color-leaflet-bg) !important;
   font-family: 'Inter', system-ui, sans-serif !important;
 }
 
-.leaflet-tile-pane { filter: brightness(0.85); }
+.leaflet-tile-pane { filter: var(--color-leaflet-tile-filter); }
 .leaflet-control-zoom a {
-  background: #1a2332 !important;
-  color: #94a3b8 !important;
-  border-color: #2a3548 !important;
+  background: var(--color-leaflet-control-bg) !important;
+  color: var(--color-leaflet-control-text) !important;
+  border-color: var(--color-leaflet-control-border) !important;
 }
 .leaflet-control-zoom a:hover {
-  background: #243044 !important;
-  color: #e2e8f0 !important;
+  background: var(--color-leaflet-control-hover-bg) !important;
+  color: var(--color-leaflet-control-hover-text) !important;
 }
 .leaflet-popup-content-wrapper {
-  background: #1a2332 !important;
-  color: #e2e8f0 !important;
-  border: 1px solid #2a3548 !important;
+  background: var(--color-leaflet-popup-bg) !important;
+  color: var(--color-leaflet-popup-text) !important;
+  border: 1px solid var(--color-leaflet-popup-border) !important;
   border-radius: 8px !important;
-  box-shadow: 0 8px 32px rgba(0,0,0,0.5) !important;
+  box-shadow: 0 8px 32px var(--color-leaflet-popup-shadow) !important;
 }
-.leaflet-popup-tip { background: #1a2332 !important; }
+.leaflet-popup-tip { background: var(--color-leaflet-popup-tip) !important; }
 
 /* ── Severity glow animations ────────────────────────── */
 @keyframes glowCritical {
@@ -83,18 +164,18 @@
 /* ── Data table ──────────────────────────────────────── */
 .ops-table th {
   @apply text-xs font-semibold text-slate-500 uppercase tracking-wider px-3 py-2.5 text-left whitespace-nowrap;
-  background: #0d1117;
-  border-bottom: 1px solid #1e293b;
+  background: var(--color-surface-secondary);
+  border-bottom: 1px solid var(--color-border-default);
   position: sticky;
   top: 0;
   z-index: 10;
 }
 .ops-table td {
   @apply text-sm text-slate-300 px-3 py-2.5 whitespace-nowrap;
-  border-bottom: 1px solid rgba(30, 41, 59, 0.5);
+  border-bottom: 1px solid var(--color-border-default);
 }
 .ops-table tr:hover td {
-  background: rgba(30, 41, 59, 0.3);
+  background: var(--color-surface-card-hover);
 }
 
 /* ── Operational badge ───────────────────────────────── */

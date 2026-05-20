@@ -42,11 +42,11 @@ export default function SideDrawer({ event, onClose }) {
             {mag.toFixed(1)}
           </div>
           <div className="flex-1 min-w-0">
-            <h2 className="text-sm font-bold text-white truncate">{eventData.place || "Unknown"}</h2>
+            <h2 className="text-sm font-bold text-slate-100 truncate">{eventData.place || "Unknown"}</h2>
             <p className="text-xs text-slate-500 mt-0.5 font-mono">{eventData.id}</p>
             <p className="text-xs text-slate-400 mt-0.5">{formatTimestamp(getEventTime(eventData))}</p>
           </div>
-          <button onClick={onClose} className="text-slate-500 hover:text-white transition-colors p-1">
+          <button onClick={onClose} className="text-slate-500 hover:text-slate-100 transition-colors p-1">
             ✕
           </button>
         </div>

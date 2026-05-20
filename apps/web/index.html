@@ -7,8 +7,20 @@
     <meta name="description" content="SeismicOps — Real-time earthquake monitoring and disaster response platform for emergency management agencies" />
     <title>SeismicOps — Earthquake Monitoring & Disaster Response</title>
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <script>
+      (function() {
+        try {
+          const theme = localStorage.getItem('theme') || 'dark';
+          if (theme === 'light') {
+            document.documentElement.classList.remove('dark');
+          } else {
+            document.documentElement.classList.add('dark');
+          }
+        } catch (_) {}
+      })();
+    </script>
   </head>
-  <body style="background:#080b12">
+  <body class="bg-surface">
     <div id="root"></div>
     <script type="module" src="/src/main.jsx"></script>
   </body>
