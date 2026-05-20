@@ -71,13 +71,10 @@ router.get("/", async (req, res) => {
 router.get("/rules", async (req, res) => {
   try {
     const { chatId } = req.query;
-    const where = {};
-    if (chatId) {
-      where.telegramChatId = BigInt(chatId);
-    }
 
+    // Fetch rules for the admin user (userId = 1)
     const rules = await prisma.userAlertRule.findMany({
-      where,
+      where: { userId: 1 },
       include: {
         location: { select: { id: true, label: true } },
       },
@@ -86,7 +83,7 @@ router.get("/rules", async (req, res) => {
 
     const serialized = rules.map((r) => ({
       ...r,
-      telegramChatId: r.telegramChatId.toString(),
+      telegramChatId: chatId ? chatId.toString() : "1",
     }));
 
     res.json({ data: serialized });
@@ -116,7 +113,7 @@ router.put("/rules/:id", async (req, res) => {
       data,
     });
 
-    res.json({ data: { ...rule, telegramChatId: rule.telegramChatId.toString() } });
+    res.json({ data: { ...rule, telegramChatId: "1" } });
   } catch (err) {
     req.log.error({ err }, "failed to update alert rule");
     res.status(500).json({ error: "Internal server error" });
@@ -130,11 +127,9 @@ router.post("/rules", async (req, res) => {
   try {
     const { chatId, locationId, minMag = 3.0, alertOnTsunami = true, alertOnPager = ["orange", "red"] } = req.body;
 
-    if (!chatId) return res.status(400).json({ error: "chatId is required" });
-
     const rule = await prisma.userAlertRule.create({
       data: {
-        telegramChatId: BigInt(chatId),
+        userId: 1, // Defaulting to the admin user
         locationId: locationId ? parseInt(locationId) : null,
         minMag: parseFloat(minMag),
         alertOnTsunami,
@@ -142,7 +137,7 @@ router.post("/rules", async (req, res) => {
       },
     });
 
-    res.status(201).json({ data: { ...rule, telegramChatId: rule.telegramChatId.toString() } });
+    res.status(201).json({ data: { ...rule, telegramChatId: chatId ? chatId.toString() : "1" } });
   } catch (err) {
     req.log.error({ err }, "failed to create alert rule");
     res.status(500).json({ error: "Internal server error" });

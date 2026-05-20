@@ -1,16 +1,3 @@
-/**
- * Telegram Bot Service — Incoming message handler.
- *
- * Uses long-polling (getUpdates) to receive messages from users.
- * Auto-registers any user who sends a message (no /start required).
- * Handles commands: /addlocation, /removelocation, /locations, /status, /help
- *
- * Design decisions:
- * - Long polling over webhooks: simpler, no HTTPS/domain needed for dev.
- * - Auto-registration on ANY message: the reviewer just DMs the bot and starts receiving alerts.
- * - Offset stored in memory: on restart, Telegram replays un-acked updates (harmless).
- */
-
 import { config } from "../../../../shared/config.js";
 import { createLogger } from "../../../../shared/logger.js";
 import { searchLocations } from "../../../../shared/geocoder.js";
@@ -44,11 +31,11 @@ export async function startTelegramBot() {
 
   // Pre-populate known chat IDs from DB
   try {
-    const existing = await prisma.$queryRaw`
-      SELECT DISTINCT telegram_chat_id FROM user_locations
-    `;
+    const existing = await prisma.telegramChat.findMany({
+      select: { telegramChatId: true }
+    });
     for (const row of existing) {
-      knownChatIds.add(String(row.telegram_chat_id));
+      knownChatIds.add(String(row.telegramChatId));
     }
     log.info({ knownChatIds: knownChatIds.size }, "pre-loaded known chat IDs");
   } catch (err) {
@@ -169,16 +156,25 @@ async function handleUpdate(update) {
 async function ensureRegistered(chatId, firstName) {
   if (knownChatIds.has(chatId)) return;
 
-  // Check if they already have locations in DB
-  const existing = await prisma.userLocation.findFirst({
+  // Check if they already exist in the TelegramChat table
+  const existing = await prisma.telegramChat.findUnique({
     where: { telegramChatId: BigInt(chatId) },
-    select: { id: true },
   });
 
   if (existing) {
     knownChatIds.add(chatId);
     return;
   }
+
+  // New registration
+  await prisma.telegramChat.create({
+    data: {
+      telegramChatId: BigInt(chatId),
+      userId: 1, // Default to our admin user
+    }
+  });
+
+  knownChatIds.add(chatId);
 
   // New user — send welcome message
   knownChatIds.add(chatId);
@@ -239,7 +235,7 @@ async function handleAddLocation(chatId, query) {
   }
 
   // Check location limit (max 3)
-  const existing = await getLocations(chatId);
+  const existing = await getLocations(1);
   if (existing.length >= 3) {
     return sendReply(
       chatId,
@@ -265,7 +261,7 @@ async function handleAddLocation(chatId, query) {
       latitude: best.lat,
       longitude: best.lon,
       radiusKm: 500,
-      telegramChatId: chatId,
+      userId: 1,
     });
 
     await invalidateLocationCache();
@@ -295,7 +291,7 @@ Location ID: \`${location.id}\`
 
 async function handleRemoveLocation(chatId, idStr) {
   if (!idStr) {
-    const locations = await getLocations(chatId);
+    const locations = await getLocations(1);
     if (locations.length === 0) {
       return sendReply(chatId, "📍 You have no monitored locations.");
     }
@@ -309,7 +305,7 @@ async function handleRemoveLocation(chatId, idStr) {
   }
 
   // Verify ownership
-  const locations = await getLocations(chatId);
+  const locations = await getLocations(1);
   const owns = locations.find((l) => l.id === id);
   if (!owns) {
     return sendReply(chatId, "❌ Location not found or doesn't belong to you.");
@@ -326,7 +322,7 @@ async function handleRemoveLocation(chatId, idStr) {
 }
 
 async function handleListLocations(chatId) {
-  const locations = await getLocations(chatId);
+  const locations = await getLocations(1);
 
   if (locations.length === 0) {
     return sendReply(

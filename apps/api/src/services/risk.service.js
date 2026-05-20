@@ -39,7 +39,7 @@ export async function computeAndBroadcast(broadcastFn) {
   const locations = await prisma.userLocation.findMany({
     select: {
       id: true, label: true, latitude: true, longitude: true,
-      radiusKm: true, telegramChatId: true,
+      radiusKm: true, userId: true,
     },
   });
 
@@ -492,46 +492,55 @@ async function checkAndAlert(loc, scores) {
     : scores.displayedRisk >= 50 ? "warning"
     : "info";
 
-  const alertPayload = {
-    eventId: scores.triggerEventId || `risk-${loc.id}-${Date.now()}`,
-    chatId: String(loc.telegramChatId),
-    rules: alerts,
-    severity,
-    isRevision: false,
-    event: {
-      mag: scores.largestMag24h,
-      place: loc.label,
-      sig: null,
-      tsunami: 0,
-      depth: null,
-      alert: null,
-    },
-    riskScores: {
-      static: scores.staticScore,
-      delta: scores.deltaScore,
-      postEvent: scores.postEventScore,
-      displayed: scores.displayedRisk,
-      level: scores.riskLevel,
-    },
-    actionGuidance: scores.actionGuidance,
-    timestamp: Date.now(),
-  };
-
-  const saved = await saveAlert({
-    eventId: alertPayload.eventId,
-    chatId: alertPayload.chatId,
-    ruleType: alertPayload.rules.map((r) => r.type).join(","),
-    severity,
-    message: formatAlertMessage(alertPayload),
-    isRevision: false,
+  // Get all registered chats for this user
+  const userChats = await prisma.telegramChat.findMany({
+    where: { userId: loc.userId },
+    select: { telegramChatId: true }
   });
+  const chatIds = userChats.map((c) => c.telegramChatId);
 
-  if (saved) {
-    await prisma.$executeRawUnsafe(`NOTIFY earthquake_alerts, '{"id": ${saved.id}}'`);
-    log.info(
-      { locationId: loc.id, rules: alerts.map((r) => r.type), severity, displayedRisk: scores.displayedRisk },
-      "risk alert produced"
-    );
+  for (const chatId of chatIds) {
+    const alertPayload = {
+      eventId: scores.triggerEventId || `risk-${loc.id}-${Date.now()}`,
+      chatId: String(chatId),
+      rules: alerts,
+      severity,
+      isRevision: false,
+      event: {
+        mag: scores.largestMag24h,
+        place: loc.label,
+        sig: null,
+        tsunami: 0,
+        depth: null,
+        alert: null,
+      },
+      riskScores: {
+        static: scores.staticScore,
+        delta: scores.deltaScore,
+        postEvent: scores.postEventScore,
+        displayed: scores.displayedRisk,
+        level: scores.riskLevel,
+      },
+      actionGuidance: scores.actionGuidance,
+      timestamp: Date.now(),
+    };
+
+    const saved = await saveAlert({
+      eventId: alertPayload.eventId,
+      chatId: alertPayload.chatId,
+      ruleType: alertPayload.rules.map((r) => r.type).join(","),
+      severity,
+      message: formatAlertMessage(alertPayload),
+      isRevision: false,
+    });
+
+    if (saved) {
+      await prisma.$executeRawUnsafe(`NOTIFY earthquake_alerts, '{"id": ${saved.id}}'`);
+      log.info(
+        { locationId: loc.id, chatId: String(chatId), rules: alerts.map((r) => r.type), severity, displayedRisk: scores.displayedRisk },
+        "risk alert produced"
+      );
+    }
   }
 }
 

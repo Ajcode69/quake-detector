@@ -85,51 +85,40 @@ export async function runDailyDigest() {
     const h = healthResult[0];
     const pollSuccessRate = h.total_polls > 0 ? Math.round((h.success_polls / h.total_polls) * 100) : 100;
 
-    // 2. Fetch all user locations to build personalized digests
+    // 2. Fetch all user locations for the admin user (userId = 1)
     const userLocations = await prisma.userLocation.findMany({
+      where: { userId: 1 },
       select: {
         id: true,
         label: true,
         latitude: true,
         longitude: true,
         radiusKm: true,
-        telegramChatId: true,
       }
     });
 
-    // Group locations by Telegram Chat ID to send one combined message per user
-    const users = {};
+    let localSummary = "";
     for (const loc of userLocations) {
-      if (!users[loc.telegramChatId]) users[loc.telegramChatId] = [];
-      users[loc.telegramChatId].push(loc);
+      // Query local earthquakes for this specific location
+      const localStats = await prisma.$queryRaw`
+        SELECT 
+          COUNT(*)::int AS "localCount",
+          MAX(mag)::float AS "localMaxMag"
+        FROM earthquakes
+        WHERE event_time > NOW() - INTERVAL '1 day'
+          AND ST_DWithin(geog, ST_SetSRID(ST_MakePoint(${loc.longitude}, ${loc.latitude}), 4326)::geography, ${loc.radiusKm * 1000})
+      `;
+
+      const ls = localStats[0];
+      if (ls && ls.localCount > 0) {
+        localSummary += `\n📍 **${loc.label}**: ${ls.localCount} events (Largest: M${ls.localMaxMag})`;
+      } else {
+        localSummary += `\n📍 **${loc.label}**: Quiet (0 events)`;
+      }
     }
 
-    // 3. Dispatch digest to each user
-    for (const [chatIdStr, locations] of Object.entries(users)) {
-      const chatId = BigInt(chatIdStr);
-      let localSummary = "";
-
-      for (const loc of locations) {
-        // Query local earthquakes for this specific location
-        const localStats = await prisma.$queryRaw`
-          SELECT 
-            COUNT(*)::int AS "localCount",
-            MAX(mag)::float AS "localMaxMag"
-          FROM earthquakes
-          WHERE event_time > NOW() - INTERVAL '1 day'
-            AND ST_DWithin(geog, ST_SetSRID(ST_MakePoint(${loc.longitude}, ${loc.latitude}), 4326)::geography, ${loc.radiusKm * 1000})
-        `;
-
-        const ls = localStats[0];
-        if (ls && ls.localCount > 0) {
-          localSummary += `\n📍 **${loc.label}**: ${ls.localCount} events (Largest: M${ls.localMaxMag})`;
-        } else {
-          localSummary += `\n📍 **${loc.label}**: Quiet (0 events)`;
-        }
-      }
-
-      // Build Telegram message
-      const text = `
+    // Build Telegram message
+    const text = `
 🌅 **DAILY SEISMIC DIGEST**
 
 🌍 **Global Overview (Last 24h):**
@@ -155,7 +144,17 @@ ${topRegions.map(r => `• ${r.region || "Unknown"} (${r.count})`).join('\n') ||
 • Alerts Sent (24h): ${alertsFired}
 
 _To adjust your alert radii or quiet hours, visit your dashboard._
-      `.trim();
+    `.trim();
+
+    // 3. Fetch all active Telegram chats
+    const telegramChats = await prisma.telegramChat.findMany({
+      select: { telegramChatId: true }
+    });
+
+    // 4. Dispatch digest to each registered chat
+    let dispatchCount = 0;
+    for (const chat of telegramChats) {
+      const chatId = chat.telegramChatId;
 
       // Save alert to database and trigger NOTIFY
       const saved = await saveAlert({
@@ -170,10 +169,11 @@ _To adjust your alert radii or quiet hours, visit your dashboard._
 
       if (saved) {
         await prisma.$executeRawUnsafe(`NOTIFY earthquake_alerts, '{"id": ${saved.id}}'`);
+        dispatchCount++;
       }
     }
 
-    log.info({ userCount: Object.keys(users).length }, "Daily digest compiled and dispatched.");
+    log.info({ chatCount: telegramChats.length, dispatchedCount: dispatchCount }, "Daily digest compiled and dispatched.");
 
   } catch (err) {
     log.error({ err }, "Failed to run daily digest");

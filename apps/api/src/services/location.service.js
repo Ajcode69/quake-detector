@@ -6,14 +6,14 @@ import prisma from "../../../../shared/db/client.js";
 import { computeAllScoresForLocation } from "./risk.service.js";
 
 
-export async function createLocation({ label, latitude, longitude, radiusKm = 500, telegramChatId }) {
+export async function createLocation({ label, latitude, longitude, radiusKm = 500, userId = 1 }) {
   const location = await prisma.userLocation.create({
     data: {
       label,
       latitude,
       longitude,
       radiusKm,
-      telegramChatId: BigInt(telegramChatId),
+      userId: parseInt(userId),
     },
   });
 
@@ -28,11 +28,11 @@ export async function createLocation({ label, latitude, longitude, radiusKm = 50
 }
 
 /**
- * Get all locations for a Telegram chat.
+ * Get all locations for a User.
  */
-export async function getLocations(telegramChatId) {
+export async function getLocations(userId = 1) {
   const locations = await prisma.userLocation.findMany({
-    where: { telegramChatId: BigInt(telegramChatId) },
+    where: { userId: parseInt(userId) },
     orderBy: { createdAt: "desc" },
     select: {
       id: true,

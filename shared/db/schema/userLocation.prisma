@@ -1,13 +1,14 @@
 // ── User locations ──────────────────────────────────────────
-// Each row is a monitored location tied to a Telegram chat.
+// Each row is a monitored location tied to a User.
 model UserLocation {
-  id             Int      @id @default(autoincrement())
-  label          String
-  latitude       Float
-  longitude      Float
-  radiusKm       Int      @default(500) @map("radius_km")
-  telegramChatId BigInt   @map("telegram_chat_id")
-  createdAt      DateTime @default(now()) @map("created_at")
+  id        Int      @id @default(autoincrement())
+  label     String
+  latitude  Float
+  longitude Float
+  radiusKm  Int      @default(500) @map("radius_km")
+  userId    Int      @map("user_id")
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now()) @map("created_at")
 
   geog Unsupported("geography(Point, 4326)")?
 
@@ -16,3 +17,4 @@ model UserLocation {
 
   @@map("user_locations")
 }
+

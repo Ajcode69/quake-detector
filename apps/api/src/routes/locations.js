@@ -15,10 +15,16 @@ const router = Router();
 router.get("/", async (req, res) => {
   try {
     const { chatId } = req.query;
-    if (!chatId) return res.status(400).json({ error: "chatId query param is required" });
+    // We ignore chatId and fetch for the admin user (userId = 1)
+    const locations = await getLocations(1);
+    
+    // For backward compatibility, map a mock telegramChatId
+    const serialized = locations.map(loc => ({
+      ...loc,
+      telegramChatId: chatId ? chatId.toString() : "1"
+    }));
 
-    const locations = await getLocations(chatId);
-    res.json({ data: locations });
+    res.json({ data: serialized });
   } catch (err) {
     req.log.error({ err }, "failed to fetch locations");
     res.status(500).json({ error: "Internal server error" });
@@ -33,11 +39,12 @@ router.post("/", async (req, res) => {
   try {
     const { label, latitude, longitude, radiusKm = 500, telegramChatId } = req.body;
 
-    if (!label || latitude == null || longitude == null || !telegramChatId) {
-      return res.status(400).json({ error: "Required: label, latitude, longitude, telegramChatId" });
+    if (!label || latitude == null || longitude == null) {
+      return res.status(400).json({ error: "Required: label, latitude, longitude" });
     }
 
-    const location = await createLocation({ label, latitude, longitude, radiusKm, telegramChatId });
+    // Pass userId: 1 to createLocation
+    const location = await createLocation({ label, latitude, longitude, radiusKm, userId: 1 });
     
     // Synchronously calculate and save initial risk score
     try {
@@ -50,7 +57,7 @@ router.post("/", async (req, res) => {
     res.status(201).json({
       data: {
         ...location,
-        telegramChatId: location.telegramChatId.toString(),
+        telegramChatId: telegramChatId ? telegramChatId.toString() : "1",
       }
     });
   } catch (err) {

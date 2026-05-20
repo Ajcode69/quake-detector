@@ -175,7 +175,7 @@ export async function getEventById(id) {
 export async function findNearbyLocations(lon, lat) {
   const locations = await prisma.$queryRaw`
     SELECT id, label, latitude, longitude, radius_km AS "radiusKm",
-           telegram_chat_id AS "telegramChatId",
+           user_id AS "userId",
            ST_Distance(geog, ST_SetSRID(ST_MakePoint(${lon}, ${lat}), 4326)::geography) / 1000.0 AS "distanceKm"
     FROM user_locations
     WHERE ST_DWithin(geog, ST_SetSRID(ST_MakePoint(${lon}, ${lat}), 4326)::geography, radius_km * 1000)
@@ -189,7 +189,7 @@ export async function findNearbyLocations(lon, lat) {
  */
 export async function getAllChatIds() {
   const rows = await prisma.$queryRaw`
-    SELECT DISTINCT telegram_chat_id AS "telegramChatId" FROM user_locations
+    SELECT DISTINCT telegram_chat_id AS "telegramChatId" FROM telegram_chats
   `;
   return rows.map((r) => r.telegramChatId);
 }

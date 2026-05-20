@@ -2,7 +2,8 @@
 // Custom per-user alert thresholds. Overrides global defaults.
 model UserAlertRule {
   id              Int      @id @default(autoincrement())
-  telegramChatId  BigInt   @map("telegram_chat_id")
+  userId          Int      @map("user_id")
+  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   locationId      Int?     @map("location_id")
   minMag          Float    @default(3.0) @map("min_mag")
   alertOnTsunami  Boolean  @default(true) @map("alert_on_tsunami")
@@ -16,3 +17,4 @@ model UserAlertRule {
 
   @@map("user_alert_rules")
 }
+

@@ -1,8 +1,12 @@
 model User {
-  id        Int      @id @default(autoincrement())
-  username  String   @unique
-  password  String // Storing password hash
-  createdAt DateTime @default(now()) @map("created_at")
+  id            Int             @id @default(autoincrement())
+  email         String          @unique
+  password      String          // Storing password hash
+  createdAt     DateTime        @default(now()) @map("created_at")
+  locations     UserLocation[]
+  telegramChats TelegramChat[]
+  alertRules    UserAlertRule[]
 
   @@map("users")
 }
+

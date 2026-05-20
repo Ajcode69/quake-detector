@@ -25,15 +25,19 @@ let refreshTimer = null;
  */
 async function refreshCache() {
   try {
-    const rows = await prisma.userLocation.findMany({
-      select: {
-        id: true, label: true, latitude: true, longitude: true,
-        radiusKm: true, telegramChatId: true,
-      },
-    });
+    const [rows, chats] = await Promise.all([
+      prisma.userLocation.findMany({
+        select: {
+          id: true, label: true, latitude: true, longitude: true,
+          radiusKm: true, userId: true,
+        },
+      }),
+      prisma.telegramChat.findMany({
+        select: { telegramChatId: true },
+      }),
+    ]);
     cachedLocations = rows;
-    const chatIdSet = new Set(rows.map((r) => r.telegramChatId));
-    cachedChatIds = [...chatIdSet];
+    cachedChatIds = chats.map((c) => c.telegramChatId);
     lastRefresh = Date.now();
     log.debug({ count: rows.length }, "location fallback cache refreshed");
   } catch (err) {
@@ -86,7 +90,7 @@ export async function findNearbyLocations(eventLon, eventLat) {
     const rows = await prisma.$queryRaw`
       SELECT 
         id, label, latitude, longitude, radius_km AS "radiusKm",
-        telegram_chat_id AS "telegramChatId",
+        user_id AS "userId",
         ST_Distance(geog, ST_SetSRID(ST_MakePoint(${eventLon}, ${eventLat}), 4326)::geography) / 1000.0 AS distance_km
       FROM user_locations
       WHERE ST_DWithin(
@@ -98,7 +102,7 @@ export async function findNearbyLocations(eventLon, eventLat) {
     `;
     return rows.map((r) => ({
       ...r,
-      telegramChatId: r.telegramChatId,
+      userId: r.userId,
       distanceKm: Math.round(Number(r.distance_km)),
     }));
   } catch (err) {
@@ -118,7 +122,7 @@ export async function findNearbyLocations(eventLon, eventLat) {
         latitude: loc.latitude,
         longitude: loc.longitude,
         radiusKm: loc.radiusKm,
-        telegramChatId: loc.telegramChatId,
+        userId: loc.userId,
         distanceKm: Math.round(distKm),
       });
     }
@@ -133,10 +137,9 @@ export async function findNearbyLocations(eventLon, eventLat) {
  */
 export async function getAllChatIds() {
   try {
-    const rows = await prisma.$queryRaw`
-      SELECT DISTINCT telegram_chat_id AS "telegramChatId"
-      FROM user_locations
-    `;
+    const rows = await prisma.telegramChat.findMany({
+      select: { telegramChatId: true }
+    });
     return rows.map((r) => r.telegramChatId);
   } catch (err) {
     log.warn({ err }, "chat ID query failed — using cached data");

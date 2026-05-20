@@ -87,7 +87,7 @@ export async function evaluateEvent(event, isRevision) {
 
     for (const loc of nearbyLocations) {
       // Load custom rules for this user+location
-      const userRule = await getUserAlertRule(loc.telegramChatId, loc.id);
+      const userRule = await getUserAlertRule(loc.userId, loc.id);
       const effectiveMinMag = userRule?.minMag ?? DEFAULT_PROXIMITY_MAG;
 
       // Check magnitude threshold
@@ -99,12 +99,21 @@ export async function evaluateEvent(event, isRevision) {
       // Check if user disabled alerts
       if (userRule?.enabled === false) continue;
 
-      addOrMergeAlert(triggeredAlerts, loc.telegramChatId, {
-        type: "proximity",
-        reason: `M${mag} is ${Math.round(loc.distanceKm)}km from "${loc.label}"`,
-        locationLabel: loc.label,
-        distanceKm: Math.round(loc.distanceKm),
+      // Broadcast to all active chats of this user
+      const userChats = await prisma.telegramChat.findMany({
+        where: { userId: loc.userId },
+        select: { telegramChatId: true }
       });
+      const chatIds = userChats.map((c) => c.telegramChatId);
+
+      for (const chatId of chatIds) {
+        addOrMergeAlert(triggeredAlerts, chatId, {
+          type: "proximity",
+          reason: `M${mag} is ${Math.round(loc.distanceKm)}km from "${loc.label}"`,
+          locationLabel: loc.label,
+          distanceKm: Math.round(loc.distanceKm),
+        });
+      }
     }
   }
 
@@ -119,15 +128,24 @@ export async function evaluateEvent(event, isRevision) {
 
       if (swarm) {
         for (const loc of nearbyLocations) {
-          // Check swarm-specific dedup (cluster-center + time window)
-          const isDup = await isSwarmDuplicate(longitude, latitude, loc.telegramChatId, SWARM_WINDOW_HOURS);
-          if (isDup) continue;
-
-          addOrMergeAlert(triggeredAlerts, loc.telegramChatId, {
-            type: "swarm",
-            reason: `🔄 ${swarm.count} earthquakes within ${SWARM_RADIUS_KM}km in last ${SWARM_WINDOW_HOURS}h (max M${swarm.maxMag})`,
-            swarmData: swarm,
+          // Broadcast to all active chats of this user
+          const userChats = await prisma.telegramChat.findMany({
+            where: { userId: loc.userId },
+            select: { telegramChatId: true }
           });
+          const chatIds = userChats.map((c) => c.telegramChatId);
+
+          for (const chatId of chatIds) {
+            // Check swarm-specific dedup (cluster-center + time window)
+            const isDup = await isSwarmDuplicate(longitude, latitude, chatId, SWARM_WINDOW_HOURS);
+            if (isDup) continue;
+
+            addOrMergeAlert(triggeredAlerts, chatId, {
+              type: "swarm",
+              reason: `🔄 ${swarm.count} earthquakes within ${SWARM_RADIUS_KM}km in last ${SWARM_WINDOW_HOURS}h (max M${swarm.maxMag})`,
+              swarmData: swarm,
+            });
+          }
         }
       }
     }
@@ -229,11 +247,11 @@ function determineSeverity(mag, tsunami, sig) {
 /**
  * Load custom alert rules for a user+location (cached per evaluator lifecycle).
  */
-async function getUserAlertRule(telegramChatId, locationId) {
+async function getUserAlertRule(userId, locationId) {
   try {
     return await prisma.userAlertRule.findFirst({
       where: {
-        telegramChatId: BigInt(telegramChatId),
+        userId: parseInt(userId),
         OR: [{ locationId }, { locationId: null }], // specific or global rule
         enabled: true,
       },
