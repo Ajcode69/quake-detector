@@ -6,16 +6,11 @@
  */
 
 import express from "express";
-import cron from "node-cron";
 import { config } from "../../../shared/config.js";
 import { createLogger } from "../../../shared/logger.js";
 import { disconnect } from "../../../shared/db/client.js";
 import { startPostgresListener } from "./listeners/postgres.js";
-import { sendTelegram } from "./services/notifier.service.js";
-import { broadcastRiskUpdate } from "./services/persister.service.js";
-import { computeAndBroadcast } from "./services/risk.service.js";
-import { getUnsentAlerts, markAlertSent } from "./services/alert.service.js";
-import { runDailyDigest, setupMaterializedViews } from "./services/digest.service.js";
+import { setupMaterializedViews } from "./services/digest.service.js";
 import eventsRouter from "./routes/events.js";
 import healthRouter from "./routes/health.js";
 import locationsRouter from "./routes/locations.js";
@@ -55,63 +50,10 @@ app.use("/api/auth", authRouter);
 app.get("/", (_req, res) => res.json({ service: "quake-detector-api", status: "ok" }));
 
 
-// ── Daily digest cron ───────────────────────────────────────
-function scheduleDailyDigest() {
-  cron.schedule("0 8 * * *", async () => {
-    await runDailyDigest();
-  }, { timezone: "UTC" });
-  log.info("daily digest cron scheduled (08:00 UTC)");
-}
-
-// ── Unsent alert retry sweep ────────────────────────────────
-function scheduleAlertRetrySweep() {
-  cron.schedule("*/5 * * * *", async () => {
-    try {
-      const unsent = await getUnsentAlerts(20);
-      if (unsent.length === 0) return;
-
-      log.info({ count: unsent.length }, "retrying unsent alerts");
-
-      for (const alert of unsent) {
-        const sent = await sendTelegram(String(alert.chatId), alert.message);
-        if (sent) {
-          await markAlertSent(alert.id);
-          log.info({ alertId: alert.id }, "retry delivered");
-        }
-      }
-    } catch (err) {
-      log.error({ err }, "alert retry sweep failed");
-    }
-  });
-  log.info("alert retry sweep scheduled (every 5 min)");
-}
-
-// ── Risk scoring cron (every 5 min) ─────────────────────────
-function scheduleRiskScoring() {
-  // Run once on startup after a short delay
-  setTimeout(() => {
-    computeAndBroadcast(broadcastRiskUpdate).catch((err) => {
-      log.error({ err }, "initial risk scoring failed");
-    });
-  }, 10_000);
-
-  cron.schedule("*/5 * * * *", async () => {
-    try {
-      await computeAndBroadcast(broadcastRiskUpdate);
-    } catch (err) {
-      log.error({ err }, "risk scoring cron failed");
-    }
-  });
-  log.info("risk scoring cron scheduled (every 5 min)");
-}
-
 // ── Main ────────────────────────────────────────────────────
 async function main() {
   await startPostgresListener();
   await setupMaterializedViews();
-  scheduleDailyDigest();
-  scheduleAlertRetrySweep();
-  scheduleRiskScoring();
   await startTelegramBot();
 
   app.listen(config.port, () => {
@@ -137,3 +79,4 @@ main().catch((err) => {
   log.fatal({ err }, "API server crashed");
   process.exit(1);
 });
+

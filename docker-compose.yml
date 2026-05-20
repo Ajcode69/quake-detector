@@ -1,38 +1,88 @@
-# ── Local dev: Redpanda (Kafka-compatible) ───────────────────
-# Supabase is a hosted service — no local container needed.
-# Just set DATABASE_URL in .env to your Supabase connection string.
-
 services:
-  redpanda:
-    image: redpandadata/redpanda:latest
-    container_name: quake-redpanda
-    command:
-      - redpanda
-      - start
-      - --mode dev-container
-      - --smp 1
-      - --memory 512M
-      - --overprovisioned
-      - --kafka-addr internal://0.0.0.0:9092,external://0.0.0.0:19092
-      - --advertise-kafka-addr internal://redpanda:9092,external://localhost:19092
-    ports:
-      - "19092:19092"   # Kafka API (external)
-      - "8081:8081"     # Schema Registry
-      - "8082:8082"     # HTTP Proxy
-      - "9644:9644"     # Admin API
-    volumes:
-      - redpanda-data:/var/lib/redpanda/data
-
-  # Redpanda Console — web UI for inspecting topics/messages
-  console:
-    image: redpandadata/console:latest
-    container_name: quake-console
-    ports:
-      - "8080:8080"
+  # ── Database Service (Postgres with PostGIS extension) ──
+  db:
+    image: postgis/postgis:15-3.3-alpine
+    container_name: quake-db
     environment:
-      - KAFKA_BROKERS=redpanda:9092
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=postgres
+      - POSTGRES_DB=quake
+    ports:
+      - "5432:5432"
+    volumes:
+      - db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d quake"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # ── API Server ──
+  api:
+    build:
+      context: .
+      target: api
+    container_name: quake-api
     depends_on:
-      - redpanda
+      db:
+        condition: service_healthy
+    ports:
+      - "3000:3000"
+    environment:
+      - DATABASE_URL=postgresql://postgres:postgres@db:5432/quake?sslmode=disable
+      - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
+      - PORT=3000
+      - NODE_ENV=production
+      - DASHBOARD_URL=http://localhost:8080
+    command: >
+      sh -c "npm run migrate && npx prisma db seed && node apps/api/src/index.js"
+
+  # ── Ingestion Worker ──
+  ingestion:
+    build:
+      context: .
+      target: ingestion
+    container_name: quake-ingestion
+    depends_on:
+      db:
+        condition: service_healthy
+      api:
+        condition: service_started
+    environment:
+      - DATABASE_URL=postgresql://postgres:postgres@db:5432/quake?sslmode=disable
+      - USGS_FEED_URL=${USGS_FEED_URL}
+      - USGS_BACKFILL_URL=${USGS_BACKFILL_URL}
+      - POLL_INTERVAL_SEC=${POLL_INTERVAL_SEC}
+      - NODE_ENV=production
+
+  # ── Decoupled Cron Background Worker ──
+  cron:
+    build:
+      context: .
+      target: cron
+    container_name: quake-cron
+    depends_on:
+      db:
+        condition: service_healthy
+      api:
+        condition: service_started
+    environment:
+      - DATABASE_URL=postgresql://postgres:postgres@db:5432/quake?sslmode=disable
+      - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
+      - NODE_ENV=production
+
+  # ── Frontend SPA Web App ──
+  web:
+    build:
+      context: .
+      target: web
+      args:
+        - VITE_API_URL=http://localhost:3000
+    container_name: quake-web
+    ports:
+      - "8080:80"
+    depends_on:
+      - api
 
 volumes:
-  redpanda-data:
+  db-data:

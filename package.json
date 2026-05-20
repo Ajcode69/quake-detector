@@ -6,13 +6,14 @@
   "type": "module",
   "scripts": {
     "api": "node apps/api/src/index.js",
+    "cron": "node apps/api/src/cron.js",
     "ingest": "node apps/ingestion/src/index.js",
     "web": "npm run dev --prefix apps/web",
     "backfill": "node apps/ingestion/src/backfill.js",
     "migrate": "npx prisma db push && node scripts/migrate.js",
     "generate": "npx prisma generate",
     "studio": "npx prisma studio",
-    "dev": "concurrently \"npm run api\" \"npm run ingest\" \"npm run web\"",
+    "dev": "concurrently \"npm run api\" \"npm run cron\" \"npm run ingest\" \"npm run web\"",
     "topics": "node scripts/setup-topics.js"
   },
   "dependencies": {
