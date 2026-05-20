@@ -533,7 +533,7 @@ function LocationDetailedView({ locationId, onBack, onRemove, riskScores, onSele
                   <span className="text-sm">🔄</span> ACTIVE SWARM DETECTED
                 </div>
                 <div className="text-[10px] text-red-400/80 mt-1 leading-relaxed">
-                  Escalating cluster of {swarm.count} events in the past 6 hours (avg M{swarm.avgMag.toFixed(1)}, max M{swarm.maxMag.toFixed(1)}). Stay alert.
+                  Escalating cluster of {swarm.count} events in the past {swarm.windowHours ? (swarm.windowHours < 1 ? `${swarm.windowHours * 60} minutes` : `${swarm.windowHours} hours`) : '6 hours'} (avg M{swarm.avgMag.toFixed(1)}, max M{swarm.maxMag.toFixed(1)}). Stay alert.
                 </div>
               </div>
             )}

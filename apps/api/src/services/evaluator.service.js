@@ -124,7 +124,7 @@ export async function evaluateEvent(event, isRevision) {
     const nearbyLocations = await findNearbyLocations(longitude, latitude);
 
     if (nearbyLocations.length > 0) {
-      const swarm = await detectSwarm(longitude, latitude, id);
+      const swarm = await detectSwarm(longitude, latitude, { excludeEventId: id });
 
       if (swarm) {
         for (const loc of nearbyLocations) {

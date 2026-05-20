@@ -5,6 +5,7 @@
 
 import { Router } from "express";
 import prisma from "../../../../shared/db/client.js";
+import { detectSwarm } from "../services/swarm.service.js";
 
 const router = Router();
 
@@ -91,27 +92,17 @@ router.get("/:id/risk", async (req, res) => {
         )
       `, location.longitude, location.latitude, location.radiusKm),
 
-      // Swarm detection near this location
-      prisma.$queryRawUnsafe(`
-        SELECT
-          COUNT(*)::int AS "count",
-          ROUND(AVG(mag)::numeric, 1)::float AS "avgMag",
-          MAX(mag)::float AS "maxMag",
-          MIN(event_time) AS "firstEvent",
-          MAX(event_time) AS "lastEvent"
-        FROM earthquakes
-        WHERE ST_DWithin(
-          geog,
-          ST_SetSRID(ST_MakePoint($1, $2), 4326)::geography,
-          50000
-        )
-        AND event_time > NOW() - INTERVAL '6 hours'
-        AND mag >= 1.5
-      `, location.longitude, location.latitude),
+      // Swarm detection near this location (using consolidated service helper)
+      detectSwarm(location.longitude, location.latitude, {
+        radiusKm: 50,
+        windowHours: 6,
+        minCount: 5,
+        minMag: 1.5,
+      }),
     ]);
 
-    const swarmData = swarmCheck[0];
-    const swarmActive = swarmData && swarmData.count >= 5;
+    const swarmData = swarmCheck;
+    const swarmActive = !!swarmData;
 
     // Get active alert thresholds for this location
     const alertRules = await prisma.userAlertRule.findMany({
@@ -177,6 +168,8 @@ router.get("/:id/risk", async (req, res) => {
             maxMag: swarmData.maxMag,
             firstEvent: swarmData.firstEvent,
             lastEvent: swarmData.lastEvent,
+            windowHours: swarmData.windowHours,
+            radiusKm: swarmData.radiusKm,
           }
         : { active: false },
       alertThresholds: alertRules,
