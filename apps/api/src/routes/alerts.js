@@ -72,9 +72,10 @@ router.get("/rules", async (req, res) => {
   try {
     const { chatId } = req.query;
 
-    // Fetch rules for the admin user (userId = 1)
+    // Fetch rules for the requested user (fallback to admin userId = 1)
+    const userId = req.headers["x-user-id"] ? parseInt(req.headers["x-user-id"]) : 1;
     const rules = await prisma.userAlertRule.findMany({
-      where: { userId: 1 },
+      where: { userId },
       include: {
         location: { select: { id: true, label: true } },
       },
@@ -127,9 +128,11 @@ router.post("/rules", async (req, res) => {
   try {
     const { chatId, locationId, minMag = 3.0, alertOnTsunami = true, alertOnPager = ["orange", "red"] } = req.body;
 
+    const userId = req.headers["x-user-id"] ? parseInt(req.headers["x-user-id"]) : 1;
+
     const rule = await prisma.userAlertRule.create({
       data: {
-        userId: 1, // Defaulting to the admin user
+        userId, // Dynamically extracted from header
         locationId: locationId ? parseInt(locationId) : null,
         minMag: parseFloat(minMag),
         alertOnTsunami,

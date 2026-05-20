@@ -15,8 +15,9 @@ const router = Router();
 router.get("/", async (req, res) => {
   try {
     const { chatId } = req.query;
-    // We ignore chatId and fetch for the admin user (userId = 1)
-    const locations = await getLocations(1);
+    // We ignore chatId and fetch for the requested user (fallback to admin userId = 1)
+    const userId = req.headers["x-user-id"] ? parseInt(req.headers["x-user-id"]) : 1;
+    const locations = await getLocations(userId);
     
     // For backward compatibility, map a mock telegramChatId
     const serialized = locations.map(loc => ({
@@ -43,8 +44,9 @@ router.post("/", async (req, res) => {
       return res.status(400).json({ error: "Required: label, latitude, longitude" });
     }
 
-    // Pass userId: 1 to createLocation
-    const location = await createLocation({ label, latitude, longitude, radiusKm, userId: 1 });
+    // Pass dynamic userId to createLocation
+    const userId = req.headers["x-user-id"] ? parseInt(req.headers["x-user-id"]) : 1;
+    const location = await createLocation({ label, latitude, longitude, radiusKm, userId });
     
     // Synchronously calculate and save initial risk score
     try {

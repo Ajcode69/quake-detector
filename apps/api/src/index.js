@@ -25,6 +25,7 @@ import statsRouter from "./routes/stats.js";
 import alertsRouter from "./routes/alerts.js";
 import healthDetailedRouter from "./routes/health-detailed.js";
 import locationRiskRouter from "./routes/location-risk.js";
+import authRouter from "./routes/auth.js";
 import { startTelegramBot, stopTelegramBot } from "./services/telegram.service.js";
 
 const log = createLogger("api");
@@ -35,8 +36,8 @@ app.use(express.json());
 app.use((req, _res, next) => { req.log = log; next(); });
 app.use((_req, res, next) => {
   res.header("Access-Control-Allow-Origin", "*");
-  res.header("Access-Control-Allow-Headers", "Content-Type");
-  res.header("Access-Control-Allow-Methods", "GET, POST, DELETE");
+  res.header("Access-Control-Allow-Headers", "Content-Type, x-user-id");
+  res.header("Access-Control-Allow-Methods", "GET, POST, DELETE, PUT");
   next();
 });
 
@@ -50,6 +51,7 @@ app.use("/api/stats", statsRouter);
 app.use("/api/alerts", alertsRouter);
 app.use("/api/health/detailed", healthDetailedRouter);
 app.use("/api/locations", locationRiskRouter);
+app.use("/api/auth", authRouter);
 app.get("/", (_req, res) => res.json({ service: "quake-detector-api", status: "ok" }));
 
 

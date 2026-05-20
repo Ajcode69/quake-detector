@@ -8,6 +8,7 @@ import WorldViewPage from "./pages/WorldViewPage.jsx";
 import LocationsPage from "./pages/LocationsPage.jsx";
 import NotificationsPage from "./pages/NotificationsPage.jsx";
 import SystemHealthPage from "./pages/SystemHealthPage.jsx";
+import LoginPage from "./pages/LoginPage.jsx";
 import "./index.css";
 
 const queryClient = new QueryClient({
@@ -24,6 +25,7 @@ createRoot(document.getElementById("root")).render(
     <QueryClientProvider client={queryClient}>
       <BrowserRouter>
         <Routes>
+          <Route path="/login" element={<LoginPage />} />
           <Route element={<App />}>
             <Route index element={<WorldViewPage />} />
             <Route path="locations" element={<LocationsPage />} />

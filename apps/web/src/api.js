@@ -1,8 +1,14 @@
 const API_BASE = import.meta.env.VITE_API_URL || "http://localhost:3000";
 
+export const getUserId = () => localStorage.getItem("quake_user_id");
+
 // ── Helper ──────────────────────────────────────────────────
-async function api(path, options) {
-  const res = await fetch(`${API_BASE}${path}`, options);
+async function api(path, options = {}) {
+  const headers = new Headers(options.headers || {});
+  const userId = getUserId();
+  if (userId) headers.set("x-user-id", userId);
+
+  const res = await fetch(`${API_BASE}${path}`, { ...options, headers });
   if (!res.ok) throw new Error(`API ${res.status}: ${path}`);
   return res.json();
 }
@@ -59,7 +65,7 @@ export function fetchAlertRules(chatId) {
 export function updateAlertRule(id, data) {
   return fetch(`${API_BASE}/api/alerts/rules/${id}`, {
     method: "PUT",
-    headers: { "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json", "x-user-id": getUserId() || "1" },
     body: JSON.stringify(data),
   }).then((r) => r.json());
 }
@@ -67,7 +73,7 @@ export function updateAlertRule(id, data) {
 export function createAlertRule(data) {
   return fetch(`${API_BASE}/api/alerts/rules`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json", "x-user-id": getUserId() || "1" },
     body: JSON.stringify(data),
   }).then((r) => r.json());
 }
@@ -90,7 +96,7 @@ export async function fetchUserLocations(chatId) {
 export async function saveLocation({ label, latitude, longitude, radiusKm, telegramChatId }) {
   const res = await fetch(`${API_BASE}/api/locations`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json", "x-user-id": getUserId() || "1" },
     body: JSON.stringify({ label, latitude, longitude, radiusKm, telegramChatId }),
   });
   if (!res.ok) throw new Error(`API error: ${res.status}`);
@@ -98,7 +104,10 @@ export async function saveLocation({ label, latitude, longitude, radiusKm, teleg
 }
 
 export async function deleteLocationApi(id) {
-  const res = await fetch(`${API_BASE}/api/locations/${id}`, { method: "DELETE" });
+  const res = await fetch(`${API_BASE}/api/locations/${id}`, { 
+    method: "DELETE",
+    headers: { "x-user-id": getUserId() || "1" },
+  });
   if (!res.ok) throw new Error(`API error: ${res.status}`);
 }
 
@@ -129,3 +138,24 @@ export function connectSSE(onEvent, locationIds) {
 
   return { close: () => source.close(), source };
 }
+
+// ── Auth ────────────────────────────────────────────────────
+export async function login(email, password) {
+  const res = await fetch(`${API_BASE}/api/auth/login`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ email, password }),
+  });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || "Login failed");
+  
+  localStorage.setItem("quake_user_id", data.user.id);
+  localStorage.setItem("quake_user_email", data.user.email);
+  return data.user;
+}
+
+export function logout() {
+  localStorage.removeItem("quake_user_id");
+  localStorage.removeItem("quake_user_email");
+}
+

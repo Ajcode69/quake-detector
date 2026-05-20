@@ -1,5 +1,6 @@
-import { Outlet, NavLink, useLocation } from "react-router-dom";
+import { Outlet, NavLink, useLocation, Navigate } from "react-router-dom";
 import { useState } from "react";
+import { getUserId, logout } from "./api";
 import { useHealth, useSSE, useLocations } from "./hooks/useQuakeData";
 // SSE only receives critical events (M5+, PAGER orange/red, tsunami, swarm).
 // All routine data is polled.
@@ -20,6 +21,11 @@ export default function App() {
   const [selectedEvent, setSelectedEvent] = useState(null);
   const [searchQuery, setSearchQuery] = useState("");
   const location = useLocation();
+  const userId = getUserId();
+
+  if (!userId) {
+    return <Navigate to="/login" replace state={{ from: location }} />;
+  }
 
   const feedOk = health?.status === "healthy";
   const lastPoll = health?.lastPoll?.polledAt;
@@ -71,12 +77,18 @@ export default function App() {
             <span className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-600 text-[10px]">⌘K</span>
           </div>
 
-          {/* Status indicators */}
-          <div className="flex items-center gap-3 ml-3">
+          {/* Status indicators and Logout */}
+          <div className="flex items-center gap-4 ml-3">
             <span
               className={`w-2 h-2 rounded-full ${feedOk && connected ? "bg-green-500 animate-pulse-dot" : "bg-red-500"}`}
               title={feedOk && connected ? "Active" : "Offline"}
             />
+            <button 
+              onClick={() => { logout(); window.location.href = "/login"; }}
+              className="text-xs text-slate-400 hover:text-white transition-colors border border-border px-2 py-1 rounded-md bg-surface"
+            >
+              Logout
+            </button>
           </div>
         </div>
       </header>
