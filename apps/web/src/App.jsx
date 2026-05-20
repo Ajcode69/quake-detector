@@ -15,8 +15,8 @@ const NAV_ITEMS = [
 
 export default function App() {
   const { health } = useHealth();
-  const { locations, locationIds, addLocation, removeLocation, reload: reloadLocations } = useLocations();
-  const { criticalEvents, riskScores, connected } = useSSE();
+  const { locations, locationIds, loading: locationsLoading, addLocation, removeLocation, reload: reloadLocations } = useLocations();
+  const { criticalEvents, riskScores, connected } = useSSE(locationIds);
   const [selectedEvent, setSelectedEvent] = useState(null);
   const [searchQuery, setSearchQuery] = useState("");
   const location = useLocation();
@@ -90,6 +90,7 @@ export default function App() {
             criticalEvents,
             riskScores,
             locations,
+            locationsLoading,
             locationIds,
             addLocation,
             removeLocation,

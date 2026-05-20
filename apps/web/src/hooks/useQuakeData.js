@@ -276,6 +276,7 @@ export function useLocations() {
   const chatId = getChatId();
 
   const load = useCallback(async () => {
+    setLoading(true);
     try {
       const data = await fetchUserLocations(chatId);
       setLocations(data);
@@ -294,8 +295,13 @@ export function useLocations() {
   };
 
   const removeLocation = async (id) => {
-    await deleteLocationApi(id);
-    await load();
+    try {
+      await deleteLocationApi(id);
+      setLocations((prev) => prev.filter((loc) => loc.id !== id));
+    } catch (e) {
+      console.error("Failed to delete location:", e);
+      await load();
+    }
   };
 
   return {

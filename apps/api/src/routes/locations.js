@@ -5,6 +5,7 @@
 import { Router } from "express";
 import { createLocation, getLocations, deleteLocation } from "../services/location.service.js";
 import { invalidateLocationCache } from "../services/location.cache.js";
+import { calculateAndSaveLocationRisk } from "../services/risk.service.js";
 
 const router = Router();
 
@@ -37,8 +38,21 @@ router.post("/", async (req, res) => {
     }
 
     const location = await createLocation({ label, latitude, longitude, radiusKm, telegramChatId });
+    
+    // Synchronously calculate and save initial risk score
+    try {
+      await calculateAndSaveLocationRisk(location);
+    } catch (riskErr) {
+      req.log.error({ err: riskErr, locationId: location.id }, "failed to calculate initial risk score on creation");
+    }
+
     await invalidateLocationCache();
-    res.status(201).json({ data: location });
+    res.status(201).json({
+      data: {
+        ...location,
+        telegramChatId: location.telegramChatId.toString(),
+      }
+    });
   } catch (err) {
     req.log.error({ err }, "failed to create location");
     res.status(500).json({ error: "Internal server error" });

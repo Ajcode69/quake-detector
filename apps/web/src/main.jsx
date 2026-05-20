@@ -27,6 +27,7 @@ createRoot(document.getElementById("root")).render(
           <Route element={<App />}>
             <Route index element={<WorldViewPage />} />
             <Route path="locations" element={<LocationsPage />} />
+            <Route path="locations/:id" element={<LocationsPage />} />
             <Route path="notifications" element={<NotificationsPage />} />
             <Route path="health" element={<SystemHealthPage />} />
             <Route path="*" element={<Navigate to="/" replace />} />

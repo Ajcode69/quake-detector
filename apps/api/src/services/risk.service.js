@@ -93,7 +93,7 @@ export async function computeAndBroadcast(broadcastFn) {
 /**
  * Compute all 3 scores for a single location.
  */
-async function computeAllScoresForLocation(loc) {
+export async function computeAllScoresForLocation(loc) {
   const { id, latitude, longitude, radiusKm, label } = loc;
 
   // Fetch events within radius from last 7 days (for post-event + delta calculations)
@@ -582,3 +582,28 @@ function haversineKm(lat1, lon1, lat2, lon2) {
 function toRad(deg) {
   return (deg * Math.PI) / 180;
 }
+
+/**
+ * Calculates and persists risk scores for a single location immediately upon creation.
+ */
+export async function calculateAndSaveLocationRisk(loc) {
+  const scores = await computeAllScoresForLocation(loc);
+  await prisma.locationRiskScore.create({
+    data: {
+      locationId: loc.id,
+      staticScore: scores.staticScore,
+      deltaScore: scores.deltaScore,
+      postEventScore: scores.postEventScore,
+      displayedRisk: scores.displayedRisk,
+      riskLevel: scores.riskLevel,
+      triggerEventId: scores.triggerEventId,
+      aftershockWindowActive: scores.aftershockWindowActive,
+      expectedAftershockMag: scores.expectedAftershockMag,
+      eventsInRadius1h: scores.eventsInRadius1h,
+      eventsInRadius24h: scores.eventsInRadius24h,
+      largestMag24h: scores.largestMag24h,
+    },
+  });
+  return scores;
+}
+

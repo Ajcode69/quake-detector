@@ -51,7 +51,25 @@ function AlertRulesTab({ locations }) {
     setRules(r.data || []);
   };
 
-  if (loading) return <div className="p-8 text-center"><div className="w-5 h-5 border-2 border-blue-500/30 border-t-blue-500 rounded-full animate-spin mx-auto" /></div>;
+  if (loading) {
+    return (
+      <div className="space-y-3 animate-pulse">
+        {[1, 2, 3].map((n) => (
+          <div key={n} className="bg-surface-card border border-border rounded-lg p-4 flex items-center justify-between">
+            <div className="flex-1 space-y-2">
+              <div className="h-4 bg-slate-800 rounded w-1/4" />
+              <div className="flex gap-4">
+                <div className="h-3 bg-slate-800 rounded w-16" />
+                <div className="h-3 bg-slate-800 rounded w-20" />
+                <div className="h-3 bg-slate-800 rounded w-24" />
+              </div>
+            </div>
+            <div className="h-7 bg-slate-800 rounded w-16" />
+          </div>
+        ))}
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-3">
@@ -113,6 +131,49 @@ export default function NotificationsPage() {
     offset: page * PAGE_SIZE,
   });
 
+  if (loading && alerts.length === 0 && Object.keys(summary).length === 0) {
+    return (
+      <div className="p-4 space-y-4">
+        {/* Summary Bar Skeletons */}
+        <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-2">
+          {[1, 2, 3, 4, 5, 6, 7].map((n) => (
+            <div key={n} className="bg-slate-800/20 border border-border rounded-lg px-3 py-2 h-14 animate-pulse flex flex-col justify-between">
+              <div className="h-2 bg-slate-800 rounded w-2/3" />
+              <div className="h-4 bg-slate-800 rounded w-1/2" />
+            </div>
+          ))}
+        </div>
+
+        {/* Tabs Skeleton */}
+        <div className="h-10 bg-surface-card border border-border rounded-lg animate-pulse" />
+
+        {/* Filters & Alerts List Skeletons */}
+        <div className="space-y-3">
+          <div className="h-6 bg-slate-850/20 rounded w-1/3 animate-pulse" />
+          <div className="space-y-1.5">
+            {[1, 2, 3, 4, 5].map((n) => (
+              <div key={n} className="bg-surface-card border border-border rounded-lg px-4 py-3 animate-pulse flex items-start gap-3">
+                <div className="w-2 h-2 rounded-full bg-slate-800 mt-1.5 shrink-0" />
+                <div className="flex-1 space-y-2">
+                  <div className="flex gap-2">
+                    <div className="h-4 bg-slate-800 rounded w-16" />
+                    <div className="h-4 bg-slate-800 rounded w-20" />
+                  </div>
+                  <div className="h-3 bg-slate-800 rounded w-1/3" />
+                  <div className="h-3.5 bg-slate-800 rounded w-5/6" />
+                </div>
+                <div className="flex flex-col items-end gap-1.5 shrink-0">
+                  <div className="h-2.5 bg-slate-800 rounded w-10" />
+                  <div className="h-2.5 bg-slate-800 rounded w-12" />
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="p-4 space-y-4 animate-fade-in">
       {/* Summary Bar */}
@@ -170,7 +231,25 @@ export default function NotificationsPage() {
 
           {/* Alert List */}
           {loading && alerts.length === 0 ? (
-            <div className="text-center py-12"><div className="w-5 h-5 border-2 border-blue-500/30 border-t-blue-500 rounded-full animate-spin mx-auto" /></div>
+            <div className="space-y-1.5 animate-pulse">
+              {[1, 2, 3, 4, 5].map((n) => (
+                <div key={n} className="bg-surface-card border border-border rounded-lg px-4 py-3 flex items-start gap-3">
+                  <div className="w-2 h-2 rounded-full bg-slate-800 mt-1.5 shrink-0" />
+                  <div className="flex-1 space-y-2">
+                    <div className="flex gap-2">
+                      <div className="h-4 bg-slate-800 rounded w-16" />
+                      <div className="h-4 bg-slate-800 rounded w-20" />
+                    </div>
+                    <div className="h-3 bg-slate-800 rounded w-1/3" />
+                    <div className="h-3.5 bg-slate-800 rounded w-5/6" />
+                  </div>
+                  <div className="flex flex-col items-end gap-1.5 shrink-0">
+                    <div className="h-2.5 bg-slate-800 rounded w-10" />
+                    <div className="h-2.5 bg-slate-800 rounded w-12" />
+                  </div>
+                </div>
+              ))}
+            </div>
           ) : alerts.length === 0 ? (
             <div className="text-center py-12 text-sm text-slate-600">No alerts found</div>
           ) : (

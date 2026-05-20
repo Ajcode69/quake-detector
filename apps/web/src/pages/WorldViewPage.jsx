@@ -34,7 +34,7 @@ export default function WorldViewPage() {
   const [eventClassFilter, setEventClassFilter] = useState("");
   const [orderBy, setOrderBy] = useState("eventTime");
 
-  const { stats } = useStats(timeWindow);
+  const { stats, loading: statsLoading } = useStats(timeWindow);
 
   // ── Map Query ──────────────────────────────────────────────
   const { data: fetchedMapEvents = [], isLoading: mapLoading } = useMapEventsQuery(
@@ -100,6 +100,36 @@ export default function WorldViewPage() {
       setPage(page + 1);
     }
   };
+
+  if (statsLoading && !stats) {
+    return (
+      <div className="p-4 space-y-4">
+        {/* KPI Strip Skeletons */}
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2">
+          {[1, 2, 3, 4, 5, 6].map((n) => (
+            <div key={n} className="bg-surface-card border border-border rounded-lg p-3 animate-pulse flex flex-col justify-between h-20">
+              <div className="h-3 bg-slate-800 rounded w-2/3" />
+              <div className="h-5 bg-slate-800 rounded w-1/2" />
+              <div className="h-2 bg-slate-800 rounded w-3/4" />
+            </div>
+          ))}
+        </div>
+
+        {/* View Switcher Skeleton */}
+        <div className="h-14 bg-surface-card border border-border rounded-lg animate-pulse" />
+
+        {/* Main Content Pane Skeleton */}
+        <div className="space-y-4">
+          <div className="h-14 bg-surface-card border border-border rounded-lg animate-pulse" />
+          <div className="bg-surface-card border border-border rounded-lg animate-pulse h-[450px] flex flex-col items-center justify-center gap-2">
+            <div className="w-12 h-12 rounded-full bg-slate-800" />
+            <div className="h-3 bg-slate-800 rounded w-1/4" />
+            <div className="h-2 bg-slate-800 rounded w-1/6" />
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="p-4 space-y-4 animate-fade-in">
@@ -177,7 +207,15 @@ export default function WorldViewPage() {
           </div>
 
           <div className="bg-surface-card border border-border rounded-lg overflow-hidden" style={{ minHeight: 450 }}>
-            <WorldMap events={mapEvents} onSelectEvent={setSelectedEvent} height="450px" />
+            {mapLoading && mapEvents.length === 0 ? (
+              <div className="h-[450px] w-full bg-slate-900/20 animate-pulse flex flex-col items-center justify-center gap-2">
+                <div className="w-12 h-12 rounded-full bg-slate-800" />
+                <div className="h-3 bg-slate-800 rounded w-1/4" />
+                <div className="h-2 bg-slate-800 rounded w-1/6" />
+              </div>
+            ) : (
+              <WorldMap events={mapEvents} onSelectEvent={setSelectedEvent} height="450px" />
+            )}
           </div>
         </div>
       )}
@@ -237,7 +275,19 @@ export default function WorldViewPage() {
                 </thead>
                 <tbody>
                   {tableLoading && paginatedEvents.length === 0 ? (
-                    <tr><td colSpan={9} className="text-center py-8 text-slate-600">Loading events...</td></tr>
+                    [1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((n) => (
+                      <tr key={n} className="animate-pulse border-b border-border/20 last:border-0">
+                        <td><div className="h-4 bg-slate-800/80 rounded w-24 my-1.5" /></td>
+                        <td><div className="h-5 bg-slate-800/80 rounded w-10 my-1.5" /></td>
+                        <td><div className="h-4 bg-slate-800/80 rounded w-48 my-1.5" /></td>
+                        <td><div className="h-4 bg-slate-800/80 rounded w-12 my-1.5" /></td>
+                        <td><div className="h-4 bg-slate-800/80 rounded w-20 my-1.5" /></td>
+                        <td><div className="h-4 bg-slate-800/80 rounded w-8 my-1.5" /></td>
+                        <td><div className="h-4 bg-slate-800/80 rounded w-12 my-1.5" /></td>
+                        <td><div className="h-5 bg-slate-800/80 rounded w-16 my-1.5" /></td>
+                        <td><div className="h-4 bg-slate-800/80 rounded w-12 my-1.5" /></td>
+                      </tr>
+                    ))
                   ) : error ? (
                     <tr><td colSpan={9} className="text-center py-8 text-red-400/70">Error loading events</td></tr>
                   ) : paginatedEvents.length === 0 ? (
