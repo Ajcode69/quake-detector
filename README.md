@@ -1,72 +1,77 @@
 # QuakeDetector
 
-QuakeDetector is a real-time, location-based earthquake monitoring and alerting platform. Built to ingest continuous data from the USGS, it processes global seismic events, detects swarms, and routes low-latency, personalized alerts via Telegram.
-
-## System Architecture
-We utilize a decoupled, event-driven microservice architecture optimized for high I/O ingestion and CPU-bound spatial evaluation.
-
-1. **Ingestion Worker (`apps/ingestion`)**: A continuous polling daemon (10s backoff). Its sole responsibility is to query USGS, normalize GeoJSON, and perform transactional upserts into PostgreSQL.
-2. **API & Evaluator (`apps/api`)**: A clusterable Node.js server that maintains Server-Sent Events (SSE) connections with clients and runs a heavy Rules Engine to evaluate alert conditions (Global thresholds, Proximity, and Swarms).
-3. **Storage**: PostgreSQL with PostGIS for geospatial indexing. 
+QuakeDetector is a real-time, location-based earthquake monitoring and alerting platform. It ingests continuous global seismic events from the USGS, processes real-time proximity alerts and swarms, and routes low-latency, personalized notifications through an interactive Telegram bot and a live operational dashboard.
 
 ---
 
-## Architectural Justifications & Trade-offs (Founding Engineer Notes)
+## Getting Started
 
-### 1. Choosing Postgres Pub/Sub (`LISTEN`/`NOTIFY`)
-Initially, the system utilized Kafka (Redpanda) to pipe events from Ingestion to the Evaluator. We removed Kafka in favor of Postgres `LISTEN/NOTIFY`.
-*   **The Problem:** The "Dual Write" problem. If the Ingestion worker writes to Postgres, but crashes before publishing to Kafka, the DB and the message broker are out of sync.
-*   **The Solution:** By moving to Postgres `NOTIFY`, the database transaction and the broadcast signal are strictly coupled. Furthermore, removing Kafka eliminates a heavy infrastructure dependency, drastically reducing DevOps overhead for a startup. 
-*   **Trade-off:** Postgres notifications are ephemeral. If the API server is offline, it misses the signal. To mitigate this, we rely on the persistent `alert_logs` table and a background "retry sweep" cron to guarantee delivery.
+Follow these steps to set up and run QuakeDetector locally.
 
-### 2. Decoupling Ingestion from Evaluation
-It is tempting to place the Alert Evaluator logic inside the Ingestion worker to avoid firing a `NOTIFY` for every tiny earthquake. We explicitly avoided this.
-*   **Why:** Alert evaluation involves heavy spatial math and DB queries. If a massive swarm hits and USGS returns 100 new earthquakes in one poll, evaluating them could block the Node.js event loop for seconds. This would delay the next USGS poll, causing our ingestion to fall behind real-time.
-*   **Scaling:** By keeping them separate, we can run exactly **1** Ingestion worker (to prevent USGS rate-limiting) while scaling the API Server to **50+** instances to handle evaluation and SSE routing concurrently.
+### 1. Prerequisites
+Ensure you have the following installed on your machine:
+* **Node.js** (v18 or higher)
+* **npm** (v9 or higher)
+* **PostgreSQL** (with the **PostGIS** extension enabled)
 
-### 3. Spatial Optimization: In-Memory `rbush` vs. Database vs. Flat Arrays
-When a new earthquake occurs, we must find all users whose alert radii overlap the event.
-*   **The Flat Array (Naïve):** Running the Haversine formula on an array of 100,000 users takes roughly **~10ms** in Node.js. Running this 50 times a minute will introduce noticeable jitter to the single-threaded event loop, delaying web requests and SSE streams.
-*   **The Database (`ST_DWithin`):** Querying Postgres for every single earthquake is I/O heavy and creates a tight bottleneck on the DB.
-*   **The Solution (In-Memory Spatial Index):** We load user locations into memory and index them using an `rbush` R-Tree (Bounding Box grid). 
-    *   *The Math:* Instead of an $O(N)$ loop checking 100,000 users, `rbush` performs an $O(\log N)$ search to find the ~50 users located in the same geographic bounding box. We then run the expensive trigonometry (Haversine) *only* on those 50 candidates, taking **< 0.05ms** and keeping the event loop completely unblocked.
+### 2. Environment Configuration
+Create a `.env` file in the root directory. You can use the following template:
 
-### 4. Fast-Failing Swarm Detection (99% Cost Reduction)
-Swarm detection (e.g., finding 5 earthquakes within 50km in 6 hours) requires an expensive `ST_DWithin` query against historical DB rows. 
-*   **Optimization:** Before querying the database, the Evaluator checks our in-memory `rbush` cache. If no users are tracking the geographic area of the new earthquake, the array returns empty `[]`. We instantly abort the swarm logic. 
-*   **Result:** Since the vast majority of global earthquakes occur in unpopulated oceans, this simple filter prevents 99% of global earthquakes from ever triggering an expensive database query.
+```env
+DATABASE_URL="postgresql://username:password@localhost:5432/quake_detector?schema=public"
+TELEGRAM_BOT_TOKEN="your_telegram_bot_token"
+DASHBOARD_URL="http://localhost:5173"
+PORT=3001
+NODE_ENV=development
+```
 
-### 5. Handling Data Mutability (The Revisions Edge Case)
-The USGS frequently revises earthquake data (e.g., bumping a magnitude from `M4.5` to `M6.2` after seismologist review). 
-*   If we treated events as immutable, we would fail to alert users of escalated threats.
-*   Our ingestion worker performs `upserts`, diffs critical safety fields, logs an `EventRevision` record, and fires a specific `revision: true` notification. The evaluator intercepts this and re-evaluates the event, issuing an escalated 🔴 **REVISED ALERT** to users if new thresholds are crossed.
+### 3. Database Initialization
+Prepare the PostgreSQL database and synchronize the Prisma schema:
 
-### 6. Resiliency via Periodic Reconciliation (Lambda Architecture)
-Relying entirely on a 1-minute poller ("Speed Layer") is risky. If the service drops connection or USGS goes down for hours, data drifts. 
-*   **The Problem:** Poller restarts only fetch the last hour, leaving silent gaps in historical data.
-*   **The Solution:** We implemented a monthly "Batch Layer" reconciliation cron. Upon startup (and every 30 days), the system fetches the entire 30-day USGS feed.
-*   **Performance:** Instead of blindly re-processing 10,000 events, it tracks a high-water mark of USGS's internal `updated` timestamp. It gracefully skips unchanged records, surgically diffing and patching gaps or late revisions without triggering duplicate alerts or blocking the live poller.
+```bash
+# Push the Prisma schema directly to the database
+npx prisma db push
+```
 
----
+### 4. Running the Application
+Start the entire workspace concurrently:
 
-## Testing the Telegram Bot
-Once the API server is running, the Telegram bot automatically starts long-polling for messages. 
+```bash
+# Run all services (Ingestion, API, and Dashboard)
+npm run dev
+```
 
-1. Message the bot using your Telegram account (search for the bot username associated with your `.env` token).
-2. **Auto-registration**: You do not need to create an account. Simply say "Hi" or send `/start` to instantly register your Telegram Chat ID in the database.
-3. Try the following commands:
-   - Type a city name directly (e.g. `Tokyo`) to automatically geocode and add it as a monitored location.
-   - `/locations` — View your monitored locations and their current Risk Scores.
-   - `/status` — View the live system health (last poll, DB counts).
-   - `/digest` — Request an on-demand Daily Digest showing magnitude breakdowns and active regions.
-   - `/addlocation <city>` — Alternative way to add a location.
-   - `/removelocation <id>` — Remove a monitored location.
+*Alternatively, you can run individual services independently:*
+```bash
+# Run the API & Alerts server
+npm run api
+
+# Run the Ingestion service
+npm run ingest
+
+# Run the Dashboard web app
+npm run web
+```
 
 ---
 
-## Local Development
-1. Ensure PostgreSQL (with PostGIS extension) is running.
-2. Setup environment variables in `.env` (including `TELEGRAM_BOT_TOKEN` and `DASHBOARD_URL`).
-3. Push schema: `npx prisma db push`
-4. Run all services at once: `npm run dev`
-   *(Alternatively, run `npm run api`, `npm run ingest`, and `npm run web` in separate terminals).*
+## Operating the Telegram Bot
+
+Once the services are active, the Telegram bot immediately begins listening for messages. 
+
+1. Message the bot using your Telegram account (search for your bot's username).
+2. **Auto-Registration**: Simply say "Hi" or send `/start` to instantly register your Telegram Chat ID in the database.
+3. Use the following commands to test location tracking and alerting:
+   * **Add Location**: Type any city name directly (e.g., `Tokyo` or `Los Angeles`) to geocode and monitor that location. Alternatively, use `/addlocation <city>`.
+   * `/locations` — View your monitored locations and their current live **Risk Scores**.
+   * `/removelocation <id>` — Stop monitoring a location.
+   * `/status` — View live platform telemetry (latest polls, DB event count, system health).
+   * `/digest` — Request an on-demand 24-hour daily summary showing magnitude breakdowns and active seismic regions.
+
+---
+
+## Directory Structure
+
+* **`apps/ingestion`**: USGS poller and historical data reconciler.
+* **`apps/api`**: Express API server, SSE streaming, risk calculator, and Telegram bot.
+* **`apps/web`**: Operational dashboard built with React.
