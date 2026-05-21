@@ -1,4 +1,4 @@
-const API_BASE = "https://quake-detector.onrender.com";
+const API_BASE = "https://sesimicops-f6ezfce3a0egegbq.canadacentral-01.azurewebsites.net";
 
 export const getUserId = () => localStorage.getItem("quake_user_id");
 
