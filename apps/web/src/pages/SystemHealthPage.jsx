@@ -15,36 +15,82 @@ const chartTooltipStyle = {
   color: "#e2e8f0",
 };
 
-// ── Poll History Timeline ───────────────────────────────────
+// ── Status Timeline ─────────────────────────────────────────
 function PollTimeline({ history }) {
-  if (!history?.length) return null;
+  // Build a time-slot based timeline that fills gaps with "down" status
+  // when the ingestion server hasn't written any poll records.
+  const SLOT_MINUTES = 2; // each block represents ~2 minutes
+  const TOTAL_SLOTS = 60; // show last ~2 hours
 
-  const data = [...history].reverse().map((p) => ({
-    time: new Date(p.timestamp).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
-    status: p.status === "success" ? 1 : p.status === "stale" ? 0.5 : 0,
-    responseMs: p.responseMs || 0,
-    newEvents: p.newEvents || 0,
-    fetched: p.eventsFetched || 0,
-    revisions: p.revisions || 0,
-    statusLabel: p.status,
-  }));
+  // Build slots from now going backwards
+  const now = Date.now();
+  const slotMs = SLOT_MINUTES * 60 * 1000;
+
+  // Index poll records by their time slot for fast lookup
+  const pollsBySlot = new Map();
+  if (history?.length) {
+    for (const p of history) {
+      const t = new Date(p.timestamp).getTime();
+      const slotIndex = Math.floor((now - t) / slotMs);
+      if (slotIndex >= 0 && slotIndex < TOTAL_SLOTS) {
+        // Keep the best record per slot (prefer success > stale > error)
+        const existing = pollsBySlot.get(slotIndex);
+        if (!existing || (p.status === "success" && existing.status !== "success")) {
+          pollsBySlot.set(slotIndex, p);
+        }
+      }
+    }
+  }
+
+  // Generate slots from oldest to newest (left to right)
+  const data = [];
+  for (let i = TOTAL_SLOTS - 1; i >= 0; i--) {
+    const slotTime = now - i * slotMs;
+    const timeLabel = new Date(slotTime).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+    const poll = pollsBySlot.get(i);
+
+    if (poll) {
+      data.push({
+        time: timeLabel,
+        status: poll.status === "success" ? 1 : poll.status === "stale" ? 0.5 : 0,
+        responseMs: poll.responseMs || 0,
+        newEvents: poll.newEvents || 0,
+        fetched: poll.eventsFetched || 0,
+        revisions: poll.revisions || 0,
+        statusLabel: poll.status,
+      });
+    } else {
+      // No poll record for this slot — server was down
+      data.push({
+        time: timeLabel,
+        status: -1, // down
+        responseMs: 0,
+        newEvents: 0,
+        fetched: 0,
+        revisions: 0,
+        statusLabel: "down",
+      });
+    }
+  }
 
   return (
     <div className="bg-surface-card border border-border rounded-lg overflow-hidden">
       <div className="px-4 py-2.5 border-b border-border">
-        <h3 className="text-xs font-semibold text-slate-400 uppercase tracking-wider">Poll History</h3>
+        <h3 className="text-xs font-semibold text-slate-400 uppercase tracking-wider">Status</h3>
       </div>
       <div className="p-4 grid grid-cols-1 lg:grid-cols-2 gap-4">
         {/* Status timeline */}
         <div>
-          <div className="text-[10px] text-slate-500 uppercase tracking-wider mb-2">Poll Status</div>
+          <div className="text-[10px] text-slate-500 uppercase tracking-wider mb-2">Server Status</div>
           <div className="flex flex-wrap gap-0.5">
             {data.map((d, i) => (
               <div
                 key={i}
-                title={`${d.time}: ${d.statusLabel} (${d.responseMs}ms, ${d.newEvents} new)`}
+                title={`${d.time}: ${d.statusLabel}${d.statusLabel !== "down" ? ` (${d.responseMs}ms, ${d.newEvents} new)` : ""}`}
                 className={`w-3 h-6 rounded-sm transition-colors ${
-                  d.status === 1 ? "bg-green-500/60" : d.status === 0.5 ? "bg-yellow-500/50" : "bg-red-500/60"
+                  d.status === 1 ? "bg-green-500/60" :
+                  d.status === 0.5 ? "bg-yellow-500/50" :
+                  "bg-red-500/60"
                 }`}
               />
             ))}
@@ -52,7 +98,7 @@ function PollTimeline({ history }) {
           <div className="flex items-center gap-3 mt-2 text-[9px] text-slate-500">
             <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-sm bg-green-500/60" />Success</span>
             <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-sm bg-yellow-500/50" />Stale</span>
-            <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-sm bg-red-500/60" />Error</span>
+            <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-sm bg-red-500/60" />Error / Down</span>
           </div>
         </div>
 
