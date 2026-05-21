@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
+import { useQueryClient } from "@tanstack/react-query";
 import { login } from "../api";
 
 export default function LoginPage() {
@@ -8,6 +9,7 @@ export default function LoginPage() {
   const [error, setError] = useState(null);
   const [loading, setLoading] = useState(false);
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
 
   const handleLogin = async (e, fastLogin = false) => {
     e?.preventDefault();
@@ -19,8 +21,9 @@ export default function LoginPage() {
       const targetPassword = fastLogin ? "admin123" : password;
       
       await login(targetEmail, targetPassword);
-      // Force page reload to ensure all react query hooks initialize with new x-user-id
-      window.location.href = "/";
+      // Clear react query cache to ensure all hooks refetch with the new x-user-id
+      queryClient.clear();
+      navigate("/");
     } catch (err) {
       setError(err.message);
     } finally {

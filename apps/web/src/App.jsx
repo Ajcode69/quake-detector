@@ -1,4 +1,4 @@
-import { Outlet, NavLink, useLocation, Navigate } from "react-router-dom";
+import { Outlet, NavLink, useLocation, Navigate, useNavigate } from "react-router-dom";
 import { useState, useEffect } from "react";
 import { getUserId, logout } from "./api";
 import { useHealth, useSSE, useLocations } from "./hooks/useQuakeData";
@@ -28,6 +28,7 @@ export default function App() {
     }
   });
   const location = useLocation();
+  const navigate = useNavigate();
   const userId = getUserId();
 
   useEffect(() => {
@@ -116,7 +117,7 @@ export default function App() {
             </button>
 
             <button 
-              onClick={() => { logout(); window.location.href = "/login"; }}
+              onClick={() => { logout(); navigate("/login"); }}
               className="text-xs text-slate-400 hover:text-slate-100 transition-colors border border-border px-2.5 py-1 rounded-md bg-surface"
             >
               Logout
