@@ -217,8 +217,11 @@ export default function SystemHealthPage() {
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2">
         <KPICard
           label="Ingestion Status"
-          value={ingestion?.status === "running" ? "RUNNING" : "DEGRADED"}
-          icon={ingestion?.status === "running" ? "✅" : "⚠️"}
+          value={ingestion?.status?.toUpperCase() || "UNKNOWN"}
+          icon={
+            ingestion?.status === "running" ? "✅" :
+            ingestion?.status === "offline" ? "🚨" : "⚠️"
+          }
           color={ingestion?.status === "running" ? "text-green-400" : "text-red-400"}
         />
         <KPICard

@@ -2,6 +2,7 @@
  * Health service for the API.
  */
 
+import { config } from "../../../../shared/config.js";
 import prisma from "../../../../shared/db/client.js";
 
 /**
@@ -25,8 +26,33 @@ export async function getHealth() {
 
   const latest = history[0];
 
+  // Compute consecutive failures from retrieved history
+  let consecutiveFailures = 0;
+  for (const p of history) {
+    if (p.status !== "success") consecutiveFailures++;
+    else break;
+  }
+
+  // Calculate the expected backoff based on the consecutive failures
+  const pollIntervalSec = config.pollIntervalSec || 60;
+  const backoffSec = consecutiveFailures === 0
+    ? pollIntervalSec
+    : Math.min(pollIntervalSec * Math.pow(2, consecutiveFailures), 600);
+  const gracePeriodSec = 120; // 2 minutes grace period
+
+  const isOffline = latest
+    ? (Date.now() - new Date(latest.polledAt).getTime() > (backoffSec + gracePeriodSec) * 1000)
+    : true;
+
+  let status = "healthy";
+  if (isOffline) {
+    status = "offline";
+  } else if (latest?.status !== "success") {
+    status = "degraded";
+  }
+
   return {
-    status: latest?.status === "success" ? "healthy" : "degraded",
+    status,
     lastPoll: latest ?? null,
     stats: counts[0],
     history,

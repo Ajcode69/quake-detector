@@ -366,7 +366,7 @@ async function handleStatus(chatId) {
     const s = health.stats;
     const lastPoll = health.lastPoll;
 
-    const statusEmoji = health.status === "healthy" ? "🟢" : "🟡";
+    const statusEmoji = health.status === "healthy" ? "🟢" : (health.status === "offline" ? "🔴" : "🟡");
     const lastPollTime = lastPoll
       ? new Date(lastPoll.polledAt).toISOString().replace("T", " ").slice(0, 19) + " UTC"
       : "Never";

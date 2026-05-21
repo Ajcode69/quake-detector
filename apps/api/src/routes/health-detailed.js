@@ -3,6 +3,7 @@
  */
 
 import { Router } from "express";
+import { config } from "../../../../shared/config.js";
 import prisma from "../../../../shared/db/client.js";
 
 const router = Router();
@@ -67,22 +68,6 @@ router.get("/", async (req, res) => {
       }),
     ]);
 
-    // Compute poll success rate (last hour)
-    const pollsLastHour = pollHistory.filter(
-      (p) => new Date(p.polledAt).getTime() > Date.now() - 3600_000
-    );
-    const successCount = pollsLastHour.filter((p) => p.status === "success").length;
-    const pollSuccessRate1h = pollsLastHour.length > 0
-      ? Math.round((successCount / pollsLastHour.length) * 1000) / 10
-      : 100;
-
-    const latestPoll = pollHistory[0] || null;
-    const avgResponseMs = pollsLastHour.length > 0
-      ? Math.round(
-          pollsLastHour.reduce((s, p) => s + (p.responseMs || 0), 0) / pollsLastHour.length
-        )
-      : 0;
-
     // Consecutive failures
     let consecutiveFailures = 0;
     for (const p of pollHistory) {
@@ -90,9 +75,39 @@ router.get("/", async (req, res) => {
       else break;
     }
 
+    const latestPoll = pollHistory[0] || null;
+
+    // Calculate the expected backoff based on the consecutive failures
+    const pollIntervalSec = config.pollIntervalSec || 60;
+    const backoffSec = consecutiveFailures === 0
+      ? pollIntervalSec
+      : Math.min(pollIntervalSec * Math.pow(2, consecutiveFailures), 600);
+    const gracePeriodSec = 120; // 2 minutes grace period
+
+    const isOffline = latestPoll
+      ? (Date.now() - new Date(latestPoll.polledAt).getTime() > (backoffSec + gracePeriodSec) * 1000)
+      : true;
+
+    // Compute poll success rate (last hour)
+    const pollsLastHour = pollHistory.filter(
+      (p) => new Date(p.polledAt).getTime() > Date.now() - 3600_000
+    );
+    const successCount = pollsLastHour.filter((p) => p.status === "success").length;
+    const pollSuccessRate1h = isOffline
+      ? 0
+      : (pollsLastHour.length > 0
+        ? Math.round((successCount / pollsLastHour.length) * 1000) / 10
+        : 100);
+
+    const avgResponseMs = pollsLastHour.length > 0
+      ? Math.round(
+          pollsLastHour.reduce((s, p) => s + (p.responseMs || 0), 0) / pollsLastHour.length
+        )
+      : 0;
+
     res.json({
       ingestion: {
-        status: latestPoll?.status === "success" ? "running" : "degraded",
+        status: isOffline ? "offline" : (latestPoll?.status === "success" ? "running" : "degraded"),
         lastPoll: latestPoll,
         pollSuccessRate1h,
         avgResponseMs,
