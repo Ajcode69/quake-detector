@@ -45,6 +45,38 @@ function sinceIso(hours) {
   return new Date(Date.now() - h * 3600_000).toISOString();
 }
 
+function parseIsoDate(value, fieldName) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return { error: `Invalid ${fieldName} datetime: use ISO 8601 (e.g. 2026-05-01T00:00:00Z)` };
+  }
+  return { iso: date.toISOString() };
+}
+
+function resolveTimeWindow({ sinceHours, since, until }) {
+  let sinceBound;
+  if (since != null) {
+    const parsed = parseIsoDate(since, "since");
+    if (parsed.error) return parsed;
+    sinceBound = parsed.iso;
+  } else {
+    sinceBound = sinceIso(sinceHours);
+  }
+
+  let untilBound = new Date().toISOString();
+  if (until != null) {
+    const parsed = parseIsoDate(until, "until");
+    if (parsed.error) return parsed;
+    untilBound = parsed.iso;
+  }
+
+  if (new Date(sinceBound) >= new Date(untilBound)) {
+    return { error: "since must be earlier than until" };
+  }
+
+  return { sinceIso: sinceBound, untilIso: untilBound };
+}
+
 async function resolveLocationPoint({ locationId, userId, radiusKmOverride }) {
   const location = await prisma.userLocation.findFirst({
     where: {
@@ -72,9 +104,9 @@ async function resolveLocationPoint({ locationId, userId, radiusKmOverride }) {
   };
 }
 
-async function queryEventsNearPoint({ longitude, latitude, radiusKm, minMag, sinceIso, limit }) {
-  const params = [longitude, latitude, radiusKm * 1000, sinceIso, limit];
-  let paramIdx = 6;
+async function queryEventsNearPoint({ longitude, latitude, radiusKm, minMag, sinceIso, untilIso, limit }) {
+  const params = [longitude, latitude, radiusKm * 1000, sinceIso, untilIso, limit];
+  let paramIdx = 7;
   const magClause = minMag != null ? `AND e.mag >= $${paramIdx++}` : "";
   if (minMag != null) params.push(minMag);
 
@@ -91,17 +123,18 @@ async function queryEventsNearPoint({ longitude, latitude, radiusKm, minMag, sin
         $3
       )
       AND e.event_time >= $4::timestamptz
+      AND e.event_time <= $5::timestamptz
       ${magClause}
     ORDER BY e.event_time DESC
-    LIMIT $5
+    LIMIT $6
   `;
 
   return prisma.$queryRawUnsafe(sql, ...params);
 }
 
-async function queryStatsNearPoint({ longitude, latitude, radiusKm, minMag, sinceIso }) {
-  const params = [longitude, latitude, radiusKm * 1000, sinceIso];
-  let paramIdx = 5;
+async function queryStatsNearPoint({ longitude, latitude, radiusKm, minMag, sinceIso, untilIso }) {
+  const params = [longitude, latitude, radiusKm * 1000, sinceIso, untilIso];
+  let paramIdx = 6;
   const magClause = minMag != null ? `AND e.mag >= $${paramIdx++}` : "";
   if (minMag != null) params.push(minMag);
 
@@ -114,9 +147,9 @@ async function queryStatsNearPoint({ longitude, latitude, radiusKm, minMag, sinc
       COALESCE(MAX(CASE WHEN e.event_time > NOW() - INTERVAL '24 hours' THEN e.mag END), 0)::float AS "maxMag24h",
       COALESCE(ROUND(AVG(e.depth)::numeric, 1), 0)::float AS "avgDepthKm",
       COUNT(CASE WHEN ST_Distance(e.geog, ST_SetSRID(ST_MakePoint($1, $2), 4326)::geography) / 1000.0 <= 100
-                  AND e.event_time >= $4::timestamptz THEN 1 END)::int AS "within100km",
+                  AND e.event_time >= $4::timestamptz AND e.event_time <= $5::timestamptz THEN 1 END)::int AS "within100km",
       COUNT(CASE WHEN ST_Distance(e.geog, ST_SetSRID(ST_MakePoint($1, $2), 4326)::geography) / 1000.0 <= 500
-                  AND e.event_time >= $4::timestamptz THEN 1 END)::int AS "within500km"
+                  AND e.event_time >= $4::timestamptz AND e.event_time <= $5::timestamptz THEN 1 END)::int AS "within500km"
     FROM earthquakes e
     WHERE e.geog IS NOT NULL
       AND ST_DWithin(
@@ -125,6 +158,7 @@ async function queryStatsNearPoint({ longitude, latitude, radiusKm, minMag, sinc
         $3
       )
       AND e.event_time >= $4::timestamptz
+      AND e.event_time <= $5::timestamptz
       ${magClause}
   `;
 
@@ -142,6 +176,8 @@ export const postgisQueryTool = tool(
     radiusKm,
     minMag,
     sinceHours,
+    since,
+    until,
     limit,
   }) => {
     log.info({ queryType, purpose, locationId, radiusKm }, "postgis query started");
@@ -168,7 +204,9 @@ export const postgisQueryTool = tool(
       return JSON.stringify({ error: `Unknown queryType: ${queryType}` });
     }
 
-    const since = sinceIso(sinceHours);
+    const timeWindow = resolveTimeWindow({ sinceHours, since, until });
+    if (timeWindow.error) return JSON.stringify({ error: timeWindow.error });
+
     const rowLimit = clampLimit(limit);
     const start = Date.now();
 
@@ -179,7 +217,9 @@ export const postgisQueryTool = tool(
         latitude: point.latitude,
         longitude: point.longitude,
         radiusKm: point.radiusKm,
-        sinceHours: sinceHours ?? DEFAULT_SINCE_HOURS,
+        since: timeWindow.sinceIso,
+        until: timeWindow.untilIso,
+        sinceHours: since != null ? null : (sinceHours ?? DEFAULT_SINCE_HOURS),
         locationLabel: point.locationLabel ?? null,
       };
 
@@ -190,7 +230,8 @@ export const postgisQueryTool = tool(
             latitude: point.latitude,
             radiusKm: point.radiusKm,
             minMag,
-            sinceIso: since,
+            sinceIso: timeWindow.sinceIso,
+            untilIso: timeWindow.untilIso,
             limit: rowLimit,
           })
         );
@@ -202,7 +243,8 @@ export const postgisQueryTool = tool(
             latitude: point.latitude,
             radiusKm: point.radiusKm,
             minMag,
-            sinceIso: since,
+            sinceIso: timeWindow.sinceIso,
+            untilIso: timeWindow.untilIso,
           })
         );
         rows = stats;
@@ -238,7 +280,12 @@ Query types:
 - stats_near_point: Counts and max magnitude near latitude/longitude
 - stats_near_location: Counts and max magnitude near a monitored location
 
-Uses ST_DWithin and ST_Distance for accurate km distances. Default lookback is 7 days.`,
+Uses ST_DWithin and ST_Distance for accurate km distances.
+
+Time filters (combine spatial + temporal):
+- sinceHours: relative lookback from now (default 168 = 7 days), e.g. 24 for last day
+- since / until: explicit ISO 8601 bounds on event_time (since overrides sinceHours when set)
+- minMag: optional minimum magnitude
     schema: z.object({
       queryType: z
         .enum(["near_point", "near_location", "stats_near_point", "stats_near_location"])
