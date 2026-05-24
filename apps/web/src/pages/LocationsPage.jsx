@@ -718,12 +718,10 @@ function LocationDetailedView({ locationId, onBack, onRemove, riskScores, onSele
         </div>
       </div>
 
-      {/* ── Time-Series & Activity Charts ────────────────────── */}
+      {/* ── Emergency Contacts & Activity Sidebar ───────────── */}
       <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
         <div className="xl:col-span-2">
-          {timeSeries && (
-            <TimeSeriesPanel timeSeries={timeSeries} title="Seismic Risk Factor Historical Trend" />
-          )}
+          <CriticalContactsPanel locationId={locationId} />
         </div>
         <div className="xl:col-span-1 flex flex-col gap-6">
           {timeSeries && <ActivityBarChart timeSeries={timeSeries} />}
@@ -820,8 +818,10 @@ function LocationDetailedView({ locationId, onBack, onRemove, riskScores, onSele
         </div>
       </div>
 
-      {/* ── Emergency Alert Contacts ─────────────────────────── */}
-      <CriticalContactsPanel locationId={locationId} />
+      {/* ── Seismic Risk Trend Chart ─────────────────────────── */}
+      {timeSeries && (
+        <TimeSeriesPanel timeSeries={timeSeries} title="Seismic Risk Factor Historical Trend" />
+      )}
     </div>
   );
 }
