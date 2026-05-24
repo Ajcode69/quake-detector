@@ -1,0 +1,19 @@
+{
+  "table": "alerts_log",
+  "description": "Audit log of alerts sent or queued for Telegram delivery",
+  "columns": [
+    { "name": "id", "type": "int", "description": "Alert log id" },
+    { "name": "event_id", "type": "text", "description": "Related earthquake id" },
+    { "name": "chat_id", "type": "bigint", "description": "Telegram chat id" },
+    { "name": "rule_type", "type": "text", "description": "global, proximity, tsunami, revision" },
+    { "name": "severity", "type": "text", "description": "info, warning, critical" },
+    { "name": "message", "type": "text", "description": "Alert message text" },
+    { "name": "sent", "type": "boolean", "description": "Whether alert was delivered" },
+    { "name": "sent_at", "type": "timestamptz", "description": "When alert was sent" },
+    { "name": "created_at", "type": "timestamptz", "description": "When alert was created" }
+  ],
+  "allowedOperations": ["SELECT"],
+  "exampleQueries": [
+    "SELECT id, rule_type, severity, sent, created_at FROM alerts_log WHERE created_at > NOW() - INTERVAL '24 hours' ORDER BY created_at DESC LIMIT 20"
+  ]
+}

@@ -116,6 +116,19 @@ export function fetchLocationRisk(locationId, historyHours = 168) {
   return api(`/api/locations/${locationId}/risk?historyHours=${historyHours}`);
 }
 
+export function fetchLocationContacts(locationId) {
+  return api(`/api/locations/${locationId}/contacts`);
+}
+
+export async function discoverLocationContacts(locationId) {
+  const res = await fetch(`${API_BASE}/api/locations/${locationId}/contacts/discover`, {
+    method: "POST",
+    headers: { "x-user-id": getUserId() || "1" },
+  });
+  if (!res.ok) throw new Error(`API error: ${res.status}`);
+  return res.json();
+}
+
 // ── SSE ─────────────────────────────────────────────────────
 export function connectSSE(onEvent, locationIds) {
   let url = `${API_BASE}/api/stream`;

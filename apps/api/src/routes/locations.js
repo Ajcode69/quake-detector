@@ -6,6 +6,12 @@ import { Router } from "express";
 import { createLocation, getLocations, deleteLocation } from "../services/location.service.js";
 import { invalidateLocationCache } from "../services/location.cache.js";
 import { calculateAndSaveLocationRisk } from "../services/risk.service.js";
+import {
+  discoverCriticalContacts,
+  getContactsForLocation,
+  isContactDiscoveryConfigured,
+} from "../agents/index.js";
+import prisma from "../../../../shared/db/client.js";
 
 const router = Router();
 
@@ -56,6 +62,12 @@ router.post("/", async (req, res) => {
     }
 
     await invalidateLocationCache();
+
+    // Fire-and-forget: discover emergency alert contacts
+    discoverCriticalContacts({ location }).catch((err) =>
+      req.log.error({ err, locationId: location.id }, "contact discovery failed")
+    );
+
     res.status(201).json({
       data: {
         ...location,
@@ -64,6 +76,62 @@ router.post("/", async (req, res) => {
     });
   } catch (err) {
     req.log.error({ err }, "failed to create location");
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+/**
+ * GET /api/locations/:id/contacts
+ */
+router.get("/:id/contacts", async (req, res) => {
+  try {
+    const locationId = parseInt(req.params.id);
+    const location = await prisma.userLocation.findUnique({
+      where: { id: locationId },
+      select: { id: true },
+    });
+
+    if (!location) {
+      return res.status(404).json({ error: "Location not found" });
+    }
+
+    const contacts = await getContactsForLocation(locationId);
+    res.json({
+      data: contacts,
+      configured: isContactDiscoveryConfigured(),
+    });
+  } catch (err) {
+    req.log.error({ err }, "failed to fetch location contacts");
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+/**
+ * POST /api/locations/:id/contacts/discover
+ * Re-run agent contact discovery for a location.
+ */
+router.post("/:id/contacts/discover", async (req, res) => {
+  try {
+    const locationId = parseInt(req.params.id);
+    const location = await prisma.userLocation.findUnique({
+      where: { id: locationId },
+    });
+
+    if (!location) {
+      return res.status(404).json({ error: "Location not found" });
+    }
+
+    if (!isContactDiscoveryConfigured()) {
+      return res.status(503).json({ error: "Contact discovery is not configured" });
+    }
+
+    discoverCriticalContacts({ location }).catch((err) =>
+      req.log.error({ err, locationId }, "contact discovery failed")
+    );
+
+    res.status(202).json({ success: true, message: "Contact discovery started" });
+  } catch (err) {
+    req.log.error({ err }, "failed to start contact discovery");
     res.status(500).json({ error: "Internal server error" });
   }
 });

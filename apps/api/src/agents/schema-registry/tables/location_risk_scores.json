@@ -1,0 +1,18 @@
+{
+  "table": "location_risk_scores",
+  "description": "Time-series risk scores computed per monitored location",
+  "columns": [
+    { "name": "id", "type": "int", "description": "Score record id" },
+    { "name": "location_id", "type": "int", "description": "Related user_locations.id" },
+    { "name": "timestamp", "type": "timestamptz", "description": "When score was computed" },
+    { "name": "displayed_risk", "type": "float", "description": "Composite risk score 0-100" },
+    { "name": "risk_level", "type": "text", "description": "Low, Moderate, High, Critical" },
+    { "name": "events_in_radius_24h", "type": "int", "description": "Quakes within radius in last 24h" },
+    { "name": "largest_mag_24h", "type": "float", "description": "Largest magnitude in last 24h" },
+    { "name": "aftershock_window_active", "type": "boolean", "description": "Aftershock window flag" }
+  ],
+  "allowedOperations": ["SELECT"],
+  "exampleQueries": [
+    "SELECT location_id, displayed_risk, risk_level, timestamp FROM location_risk_scores WHERE location_id = 1 ORDER BY timestamp DESC LIMIT 1"
+  ]
+}

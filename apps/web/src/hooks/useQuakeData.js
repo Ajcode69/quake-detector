@@ -1,7 +1,8 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import {
   fetchEvents, fetchMapEvents, fetchHealth, fetchHealthDetailed, fetchStats,
-  fetchAlerts, fetchUserLocations, fetchLocationRisk,
+  fetchAlerts,   fetchUserLocations, fetchLocationRisk,
+  fetchLocationContacts, discoverLocationContacts,
   saveLocation, deleteLocationApi, connectSSE,
 } from "../api";
 import { useQuery, useInfiniteQuery } from "@tanstack/react-query";
@@ -340,4 +341,62 @@ export function useLocationRisk(locationId, historyHours = 168) {
   }, [locationId, historyHours]);
 
   return { riskData: data, loading };
+}
+
+// ── Location critical contacts (poll while discovering) ─────
+export function useLocationContacts(locationId, refreshInterval = 10_000) {
+  const [contacts, setContacts] = useState([]);
+  const [configured, setConfigured] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [discovering, setDiscovering] = useState(false);
+  const [error, setError] = useState(null);
+
+  const load = useCallback(async () => {
+    if (!locationId) return;
+    try {
+      const result = await fetchLocationContacts(locationId);
+      setContacts(result.data || []);
+      setConfigured(Boolean(result.configured));
+      setError(null);
+    } catch (err) {
+      setError(err.message);
+      setContacts([]);
+    } finally {
+      setLoading(false);
+    }
+  }, [locationId]);
+
+  useEffect(() => {
+    if (!locationId) return;
+    setLoading(true);
+    load();
+    const id = setInterval(load, refreshInterval);
+    return () => clearInterval(id);
+  }, [locationId, refreshInterval, load]);
+
+  const rediscover = useCallback(async () => {
+    if (!locationId) return;
+    setDiscovering(true);
+    setError(null);
+    try {
+      await discoverLocationContacts(locationId);
+      await load();
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setDiscovering(false);
+    }
+  }, [locationId, load]);
+
+  const isPending = configured && contacts.length === 0 && !error;
+
+  return {
+    contacts,
+    configured,
+    loading,
+    discovering: discovering || isPending,
+    error,
+    reload: load,
+    rediscover,
+  };
 }

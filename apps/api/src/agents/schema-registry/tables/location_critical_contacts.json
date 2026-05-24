@@ -1,0 +1,23 @@
+{
+  "table": "location_critical_contacts",
+  "description": "Emergency alert contacts discovered for monitored locations",
+  "columns": [
+    { "name": "id", "type": "int", "description": "Contact id" },
+    { "name": "location_id", "type": "int", "description": "Related user_locations.id" },
+    { "name": "name", "type": "text", "description": "Contact or agency name" },
+    { "name": "organization", "type": "text", "description": "Organization name" },
+    { "name": "role", "type": "text", "description": "emergency_management, tsunami_warning, seismological_survey, etc." },
+    { "name": "phone", "type": "text", "description": "Phone number" },
+    { "name": "email", "type": "text", "description": "Email address" },
+    { "name": "website", "type": "text", "description": "Website URL" },
+    { "name": "coverage_area", "type": "text", "description": "Geographic coverage" },
+    { "name": "alert_types", "type": "text[]", "description": "earthquake, tsunami, emergency_broadcast, etc." },
+    { "name": "priority", "type": "text", "description": "critical, high, medium" },
+    { "name": "source", "type": "text", "description": "web_search or manual" },
+    { "name": "discovered_at", "type": "timestamptz", "description": "When contact was discovered" }
+  ],
+  "allowedOperations": ["SELECT"],
+  "exampleQueries": [
+    "SELECT name, organization, role, phone, website FROM location_critical_contacts WHERE location_id = 1 ORDER BY priority"
+  ]
+}

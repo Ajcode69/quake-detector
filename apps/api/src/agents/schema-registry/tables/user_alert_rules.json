@@ -1,0 +1,18 @@
+{
+  "table": "user_alert_rules",
+  "description": "Per-user alert threshold rules",
+  "columns": [
+    { "name": "id", "type": "int", "description": "Rule id" },
+    { "name": "user_id", "type": "int", "description": "Owner user id" },
+    { "name": "location_id", "type": "int", "description": "Optional location-specific rule" },
+    { "name": "min_mag", "type": "float", "description": "Minimum magnitude to alert" },
+    { "name": "alert_on_tsunami", "type": "boolean", "description": "Alert on tsunami flag" },
+    { "name": "alert_on_pager", "type": "text[]", "description": "PAGER levels to alert on" },
+    { "name": "enabled", "type": "boolean", "description": "Whether rule is active" },
+    { "name": "created_at", "type": "timestamptz", "description": "When rule was created" }
+  ],
+  "allowedOperations": ["SELECT"],
+  "exampleQueries": [
+    "SELECT id, min_mag, alert_on_tsunami, enabled FROM user_alert_rules WHERE user_id = 1"
+  ]
+}

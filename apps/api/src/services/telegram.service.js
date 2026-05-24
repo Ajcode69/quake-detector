@@ -6,6 +6,11 @@ import { invalidateLocationCache } from "./location.cache.js";
 import { sendTelegram } from "./notifier.service.js";
 import { getHealth } from "./health.service.js";
 import prisma from "../../../../shared/db/client.js";
+import {
+  runChatAgent,
+  discoverCriticalContacts,
+  formatContactsSummary,
+} from "../agents/index.js";
 
 const log = createLogger("telegram-bot");
 
@@ -143,9 +148,9 @@ async function handleUpdate(update) {
     }
   }
 
-  // Non-command message — treat as a location search (natural language)
+  // Non-command message — route to AI agent
   if (text.length >= 2) {
-    return handleAddLocation(chatId, text);
+    return handleAgentMessage(chatId, text);
   }
 }
 
@@ -184,11 +189,12 @@ async function ensureRegistered(chatId, firstName) {
 
 I'll send you real-time earthquake alerts and a daily digest.
 
-🚀 *Quick start:* Send me a city name to start monitoring it.
+🚀 *Quick start:* Add a location with /addlocation, or ask me anything about earthquakes.
 
-Example: \`Tokyo\` or \`San Francisco\`
+Example: \`/addlocation Tokyo\`
+Or ask: "What were the largest quakes in the last 24 hours?"
 
-Or use commands:
+*Commands:*
 • /addlocation <city> — Monitor a location
 • /locations — See your monitored locations
 • /removelocation <id> — Stop monitoring
@@ -215,7 +221,7 @@ async function handleHelp(chatId, firstName) {
 • /digest — Request today's digest now
 • /help — Show this message
 
-💡 *Tip:* Just type a city name directly and I'll add it!
+💡 *Ask me anything:* Type a question about earthquakes, alerts, or your locations — I'll search the database and web to answer.
 
 *What you'll receive:*
 🔴 Real-time alerts for M5.0+ globally
@@ -227,6 +233,18 @@ ${config.dashboardUrl ? `📊 [Open Dashboard](${config.dashboardUrl})` : ""}
   `.trim();
 
   await sendReply(chatId, msg);
+}
+
+async function handleAgentMessage(chatId, text) {
+  await sendReply(chatId, "🤔 Thinking...");
+
+  try {
+    const answer = await runChatAgent({ message: text, userId: 1, chatId });
+    await sendReply(chatId, answer);
+  } catch (err) {
+    log.error({ err, chatId }, "agent message failed");
+    await sendReply(chatId, "❌ Sorry, I couldn't process that. Try /help for commands.");
+  }
 }
 
 async function handleAddLocation(chatId, query) {
@@ -283,6 +301,18 @@ Location ID: \`${location.id}\`
     `.trim();
 
     await sendReply(chatId, msg);
+
+    await sendReply(chatId, "🔍 Searching emergency alert contacts for this region...");
+    discoverCriticalContacts({
+      location,
+      onComplete: async (contacts, err) => {
+        if (err) {
+          await sendReply(chatId, "⚠️ Couldn't find emergency contacts right now. Location is still monitored.");
+          return;
+        }
+        await sendReply(chatId, formatContactsSummary(contacts));
+      },
+    }).catch((err) => log.error({ err, locationId: location.id }, "contact discovery background error"));
   } catch (err) {
     log.error({ err, query, chatId }, "failed to add location via Telegram");
     await sendReply(chatId, "❌ Failed to add location. Please try again.");
@@ -327,7 +357,7 @@ async function handleListLocations(chatId) {
   if (locations.length === 0) {
     return sendReply(
       chatId,
-      "📍 No monitored locations.\n\nAdd one: `/addlocation Tokyo`\nOr just type a city name!"
+      "📍 No monitored locations.\n\nAdd one: `/addlocation Tokyo`"
     );
   }
 

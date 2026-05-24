@@ -12,8 +12,9 @@ model UserLocation {
 
   geog Unsupported("geography(Point, 4326)")?
 
-  alertRules UserAlertRule[]
-  riskScores LocationRiskScore[]
+  alertRules       UserAlertRule[]
+  riskScores       LocationRiskScore[]
+  criticalContacts LocationCriticalContact[]
 
   @@map("user_locations")
 }

@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useOutletContext, useParams, useNavigate } from "react-router-dom";
-import { useLocationRisk } from "../hooks/useQuakeData";
+import { useLocationRisk, useLocationContacts } from "../hooks/useQuakeData";
 import { searchLocations } from "../api";
 import WorldMap from "../components/map/WorldMap";
 import { riskColorClass, scoreToLevel, timeAgo, formatTimestamp, getEventTime, magColorClass } from "../utils";
@@ -441,6 +441,150 @@ function ActivityBarChart({ timeSeries }) {
   );
 }
 
+const PRIORITY_STYLES = {
+  critical: "bg-red-500/10 text-red-400 border-red-500/25",
+  high: "bg-orange-500/10 text-orange-400 border-orange-500/25",
+  medium: "bg-amber-500/10 text-amber-400 border-amber-500/25",
+};
+
+function formatRole(role) {
+  if (!role) return "Other";
+  return role.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
+}
+
+function CriticalContactsPanel({ locationId }) {
+  const { contacts, configured, loading, discovering, error, rediscover } = useLocationContacts(locationId);
+
+  return (
+    <div className="bg-surface-card border border-border rounded-xl overflow-hidden shadow-md">
+      <div className="px-4 py-3 border-b border-border flex items-center justify-between gap-3">
+        <div>
+          <h3 className="text-xs font-semibold text-slate-400 uppercase tracking-wider">Emergency Alert Contacts</h3>
+          <p className="text-[10px] text-slate-500 mt-0.5">Official agencies discovered via web search for this region</p>
+        </div>
+        {configured && (
+          <button
+            onClick={rediscover}
+            disabled={discovering}
+            className="text-[10px] bg-surface border border-border text-slate-400 px-2.5 py-1 rounded-md hover:text-slate-200 hover:border-slate-600 transition-colors disabled:opacity-50 shrink-0"
+          >
+            {discovering ? "Searching..." : "Refresh"}
+          </button>
+        )}
+      </div>
+
+      <div className="p-4">
+        {loading ? (
+          <div className="flex items-center justify-center gap-2 py-8 text-xs text-slate-500">
+            <div className="w-4 h-4 border-2 border-slate-600/30 border-t-blue-500 rounded-full animate-spin" />
+            Loading contacts...
+          </div>
+        ) : !configured ? (
+          <div className="text-center py-8">
+            <span className="text-2xl mb-2 block">⚙️</span>
+            <p className="text-xs text-slate-500 max-w-sm mx-auto leading-relaxed">
+              Contact discovery is not configured on the server. Set Azure OpenAI and Tavily API keys to enable automatic lookup.
+            </p>
+          </div>
+        ) : discovering && contacts.length === 0 ? (
+          <div className="flex flex-col items-center justify-center gap-2 py-8">
+            <div className="w-5 h-5 border-2 border-blue-500/30 border-t-blue-500 rounded-full animate-spin" />
+            <p className="text-xs text-blue-400 font-medium">Searching emergency alert contacts...</p>
+            <p className="text-[10px] text-slate-500">This may take up to a minute</p>
+          </div>
+        ) : error ? (
+          <div className="text-center py-6">
+            <p className="text-xs text-red-400 mb-3">{error}</p>
+            <button onClick={rediscover} className="text-[10px] text-blue-400 hover:text-blue-300 underline">
+              Try again
+            </button>
+          </div>
+        ) : contacts.length === 0 ? (
+          <div className="text-center py-8">
+            <span className="text-2xl mb-2 block">📭</span>
+            <p className="text-xs text-slate-500 mb-3">No emergency contacts found for this location yet.</p>
+            <button
+              onClick={rediscover}
+              className="text-[10px] bg-blue-500/10 border border-blue-500/25 text-blue-400 px-3 py-1.5 rounded-md hover:bg-blue-500/20 transition-colors"
+            >
+              Search again
+            </button>
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            {contacts.map((contact) => {
+              const priorityStyle = PRIORITY_STYLES[contact.priority] || PRIORITY_STYLES.high;
+              return (
+                <div
+                  key={contact.id}
+                  className="bg-surface border border-border/50 rounded-lg p-3.5 hover:border-slate-700 transition-colors"
+                >
+                  <div className="flex items-start justify-between gap-2 mb-2">
+                    <div className="min-w-0">
+                      <div className="text-xs font-semibold text-slate-200 truncate">{contact.name}</div>
+                      <div className="text-[10px] text-slate-500 truncate">{contact.organization}</div>
+                    </div>
+                    <span className={`text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded border shrink-0 ${priorityStyle}`}>
+                      {contact.priority}
+                    </span>
+                  </div>
+
+                  <div className="text-[10px] text-slate-400 mb-2">
+                    {formatRole(contact.role)}
+                    {contact.coverageArea ? ` · ${contact.coverageArea}` : ""}
+                  </div>
+
+                  {contact.alertTypes?.length > 0 && (
+                    <div className="flex flex-wrap gap-1 mb-2">
+                      {contact.alertTypes.map((type) => (
+                        <span
+                          key={type}
+                          className="text-[9px] bg-slate-800 text-slate-400 px-1.5 py-0.5 rounded font-mono"
+                        >
+                          {type.replace(/_/g, " ")}
+                        </span>
+                      ))}
+                    </div>
+                  )}
+
+                  <div className="space-y-1">
+                    {contact.phone && (
+                      <a href={`tel:${contact.phone}`} className="block text-[10px] text-slate-400 hover:text-blue-400 transition-colors">
+                        📞 {contact.phone}
+                      </a>
+                    )}
+                    {contact.email && (
+                      <a href={`mailto:${contact.email}`} className="block text-[10px] text-slate-400 hover:text-blue-400 transition-colors truncate">
+                        ✉️ {contact.email}
+                      </a>
+                    )}
+                    {contact.website && (
+                      <a
+                        href={contact.website.startsWith("http") ? contact.website : `https://${contact.website}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="block text-[10px] text-blue-400/80 hover:text-blue-400 transition-colors truncate"
+                      >
+                        🌐 {contact.website.replace(/^https?:\/\//, "")}
+                      </a>
+                    )}
+                    {contact.address && (
+                      <p className="text-[10px] text-slate-500 leading-relaxed">📍 {contact.address}</p>
+                    )}
+                    {contact.notes && (
+                      <p className="text-[10px] text-slate-600 italic leading-relaxed mt-1">{contact.notes}</p>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 // ── Detailed Location Analytics View ────────────────────────
 function LocationDetailedView({ locationId, onBack, onRemove, riskScores, onSelectEvent }) {
   const { riskData, loading } = useLocationRisk(locationId);
@@ -675,6 +819,9 @@ function LocationDetailedView({ locationId, onBack, onRemove, riskScores, onSele
           )}
         </div>
       </div>
+
+      {/* ── Emergency Alert Contacts ─────────────────────────── */}
+      <CriticalContactsPanel locationId={locationId} />
     </div>
   );
 }

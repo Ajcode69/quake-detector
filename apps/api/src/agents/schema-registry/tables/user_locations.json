@@ -1,0 +1,17 @@
+{
+  "table": "user_locations",
+  "description": "User-monitored locations for proximity alerts and risk scoring",
+  "columns": [
+    { "name": "id", "type": "int", "description": "Location id" },
+    { "name": "label", "type": "text", "description": "Display name (city/region)" },
+    { "name": "latitude", "type": "float", "description": "Latitude" },
+    { "name": "longitude", "type": "float", "description": "Longitude" },
+    { "name": "radius_km", "type": "int", "description": "Monitoring radius in km" },
+    { "name": "user_id", "type": "int", "description": "Owner user id" },
+    { "name": "created_at", "type": "timestamptz", "description": "When location was added" }
+  ],
+  "allowedOperations": ["SELECT"],
+  "exampleQueries": [
+    "SELECT id, label, latitude, longitude, radius_km FROM user_locations WHERE user_id = 1"
+  ]
+}

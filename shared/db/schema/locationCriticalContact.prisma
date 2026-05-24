@@ -1,0 +1,25 @@
+// ── Critical emergency contacts per monitored location ────────
+// Discovered via web search when a location is added.
+model LocationCriticalContact {
+  id           Int          @id @default(autoincrement())
+  locationId   Int          @map("location_id")
+  location     UserLocation @relation(fields: [locationId], references: [id], onDelete: Cascade)
+
+  name         String
+  organization String
+  role         String // emergency_management | tsunami_warning | seismological_survey | civil_defense | utility | hospital | media_alert | other
+  phone        String?
+  email        String?
+  website      String?
+  address      String?
+  coverageArea String?      @map("coverage_area")
+  alertTypes   String[]     @default([]) @map("alert_types")
+  priority     String       @default("high") // critical | high | medium
+  source       String       @default("web_search") // web_search | manual
+  sourceUrl    String?      @map("source_url")
+  notes        String?
+  discoveredAt DateTime     @default(now()) @map("discovered_at")
+
+  @@index([locationId])
+  @@map("location_critical_contacts")
+}
