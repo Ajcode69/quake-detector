@@ -285,7 +285,7 @@ Uses ST_DWithin and ST_Distance for accurate km distances.
 Time filters (combine spatial + temporal):
 - sinceHours: relative lookback from now (default 168 = 7 days), e.g. 24 for last day
 - since / until: explicit ISO 8601 bounds on event_time (since overrides sinceHours when set)
-- minMag: optional minimum magnitude
+- minMag: optional minimum magnitude`,
     schema: z.object({
       queryType: z
         .enum(["near_point", "near_location", "stats_near_point", "stats_near_location"])
@@ -307,7 +307,15 @@ Time filters (combine spatial + temporal):
         .positive()
         .max(8760)
         .optional()
-        .describe("Lookback window in hours (default 168 = 7 days)"),
+        .describe("Relative lookback in hours from now (default 168 = 7 days). Ignored if since is set."),
+      since: z
+        .string()
+        .optional()
+        .describe("Earliest event_time (ISO 8601), e.g. 2026-05-01T00:00:00Z"),
+      until: z
+        .string()
+        .optional()
+        .describe("Latest event_time (ISO 8601). Defaults to now if omitted."),
       limit: z.number().int().positive().max(MAX_LIMIT).optional().describe("Max rows for near_* queries (default 20, max 50)"),
     }),
   }
