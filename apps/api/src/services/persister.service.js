@@ -67,14 +67,26 @@ export function broadcastRiskUpdate(payload) {
  * Broadcast an event to SSE clients, filtered by their locations.
  */
 export function broadcastToSSE(event) {
+  const mag = parseFloat(event.mag) || 0;
+  const isGlobalCritical =
+    mag >= 5.0 ||
+    event.tsunami === 1 ||
+    event.alert === "orange" ||
+    event.alert === "red" ||
+    event.eventClass === "tsunami_risk" ||
+    event.eventClass === "major_quake" ||
+    (event.impactScore != null && event.impactScore >= 75);
+
   const eventLon = parseFloat(event.longitude) || parseFloat(event.geometry?.coordinates?.[0]);
   const eventLat = parseFloat(event.latitude) || parseFloat(event.geometry?.coordinates?.[1]);
 
   for (const [clientId, client] of sseClients) {
     try {
-      // No locations = global view → send everything
+      // No locations = global view → send only if globally critical
       if (client.locations === null) {
-        client.res.write(`data: ${JSON.stringify(event)}\n\n`);
+        if (isGlobalCritical) {
+          client.res.write(`data: ${JSON.stringify(event)}\n\n`);
+        }
         continue;
       }
 
@@ -86,7 +98,8 @@ export function broadcastToSSE(event) {
         return distKm <= loc.radiusKm;
       });
 
-      if (isNearby) {
+      // Send if it's nearby (any magnitude/severity) OR if it is globally critical
+      if (isNearby || isGlobalCritical) {
         client.res.write(`data: ${JSON.stringify(event)}\n\n`);
       }
     } catch {

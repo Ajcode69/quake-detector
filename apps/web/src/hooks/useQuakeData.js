@@ -169,7 +169,8 @@ export function useSSE(locationIds) {
         event.type === "swarm_alert" ||
         event.type === "alert" ||
         event.severity === "critical" ||
-        event.severity === "warning";
+        event.severity === "warning" ||
+        (locationIds && locationIds.length > 0);
 
       if (isCritical) {
         setCriticalEvents((prev) =>
