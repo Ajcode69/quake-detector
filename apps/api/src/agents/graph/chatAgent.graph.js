@@ -7,10 +7,11 @@ import { SystemMessage, ToolMessage } from "@langchain/core/messages";
 import { createChatModel } from "../llm.js";
 import { webSearchTool } from "../tools/webSearch.tool.js";
 import { dbQueryTool } from "../tools/dbQuery.tool.js";
+import { postgisQueryTool } from "../tools/postgisQuery.tool.js";
 import { buildChatSystemPrompt } from "../prompts/chat.system.js";
 import { config } from "../../../../../shared/config.js";
 
-const TOOLS = [webSearchTool, dbQueryTool];
+const TOOLS = [webSearchTool, dbQueryTool, postgisQueryTool];
 const TOOLS_BY_NAME = Object.fromEntries(TOOLS.map((t) => [t.name, t]));
 
 let _graph = null;

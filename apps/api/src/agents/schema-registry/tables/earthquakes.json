@@ -1,6 +1,6 @@
 {
   "table": "earthquakes",
-  "description": "USGS earthquake events ingested into the system",
+  "description": "USGS earthquake events ingested into the system. Has PostGIS geog column for spatial queries.",
   "columns": [
     { "name": "id", "type": "text", "description": "USGS event id" },
     { "name": "mag", "type": "float", "description": "Magnitude" },
@@ -12,14 +12,16 @@
     { "name": "alert", "type": "text", "description": "PAGER level: green/yellow/orange/red" },
     { "name": "tsunami", "type": "int", "description": "1 if tsunami flag set, else 0" },
     { "name": "depth", "type": "float", "description": "Depth in km" },
-    { "name": "latitude", "type": "float", "description": "Latitude" },
-    { "name": "longitude", "type": "float", "description": "Longitude" },
+    { "name": "latitude", "type": "float", "description": "Latitude (denormalized from geometry)" },
+    { "name": "longitude", "type": "float", "description": "Longitude (denormalized from geometry)" },
+    { "name": "geog", "type": "geography(Point,4326)", "description": "PostGIS geography point — use with ST_DWithin/ST_Distance for radius queries" },
     { "name": "status", "type": "text", "description": "automatic or reviewed" },
     { "name": "url", "type": "text", "description": "USGS event page URL" }
   ],
   "allowedOperations": ["SELECT"],
   "exampleQueries": [
-    "SELECT id, mag, place, event_time FROM earthquakes WHERE event_time > NOW() - INTERVAL '24 hours' ORDER BY mag DESC NULLS LAST LIMIT 10"
+    "SELECT id, mag, place, event_time FROM earthquakes WHERE event_time > NOW() - INTERVAL '24 hours' ORDER BY mag DESC NULLS LAST LIMIT 10",
+    "SELECT id, mag, place, ST_Distance(geog, ST_SetSRID(ST_MakePoint(-122.4194, 37.7749), 4326)::geography) / 1000.0 AS distance_km FROM earthquakes WHERE ST_DWithin(geog, ST_SetSRID(ST_MakePoint(-122.4194, 37.7749), 4326)::geography, 500000) ORDER BY event_time DESC LIMIT 10"
   ],
-  "notes": "Prefer latitude/longitude over geog for agent queries"
+  "notes": "For agent spatial queries, prefer the postgis_query tool over raw SQL. The geog column is indexed with GiST. Distances from ST_Distance are in meters — divide by 1000 for km. ST_DWithin(geog, point, radius_meters) filters by radius."
 }

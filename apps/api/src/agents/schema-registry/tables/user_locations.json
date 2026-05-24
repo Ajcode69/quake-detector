@@ -7,6 +7,7 @@
     { "name": "latitude", "type": "float", "description": "Latitude" },
     { "name": "longitude", "type": "float", "description": "Longitude" },
     { "name": "radius_km", "type": "int", "description": "Monitoring radius in km" },
+    { "name": "geog", "type": "geography(Point,4326)", "description": "PostGIS geography point for spatial joins with earthquakes" },
     { "name": "user_id", "type": "int", "description": "Owner user id" },
     { "name": "created_at", "type": "timestamptz", "description": "When location was added" }
   ],

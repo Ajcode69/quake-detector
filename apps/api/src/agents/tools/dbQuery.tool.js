@@ -52,6 +52,8 @@ export const dbQueryTool = tool(
     name: "db_query",
     description: `Run a read-only SELECT query against the QuakeDetector database. Only SELECT is allowed. Results are capped at 50 rows.
 
+For spatial/distance queries (near a point, within radius, proximity counts), use postgis_query instead — it runs parameterized PostGIS ST_DWithin/ST_Distance on earthquakes.geog.
+
 Available schema:
 ${getRegistrySummary()}`,
     schema: z.object({
